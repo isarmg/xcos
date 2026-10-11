@@ -2,7 +2,7 @@ import { startAfterFonts } from "@xcss/web/web-fonts";
 import { DateRangeField, type CalendarDateRange } from "@xcss/web/admin-ui/date-range";
 import "@xcss/web/admin-ui/date-range.css";
 import { displayLabel } from "./display-labels";
-import { effectiveStatus } from "./camera-status";
+import { cameraSnapshot, effectiveStatus, remainingObservationMs, type CameraSnapshot } from "./camera-status";
 import { t, getLocale } from "@xcss/web/admin-ui/i18n";
 import { StrictMode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
@@ -37,7 +37,7 @@ import {
   request,
   requestLog,
   type AuditRow,
-  type Camera,
+  type Camera as CameraResponse,
   type MonitorEvent,
   type LoggedMediaOperation,
   type RecordingSpan,
@@ -49,6 +49,7 @@ import { isSameOriginMediaUrl, requireSameOriginMediaUrl } from "./media-url";
 import { createSnapshotRefresh } from "./snapshot-refresh";
 
 type View = InstancePage | "account";
+type Camera = CameraSnapshot<CameraResponse>;
 const trimInstanceName = (value: string) => value.replace(/^\p{White_Space}+|\p{White_Space}+$/gu, "");
 const validInstanceName = (value: string) => value.length > 0 && [...value].length <= 64
   && !/[\u0000-\u001f\u007f-\u009f\ud800-\udfff]/u.test(value);
@@ -84,7 +85,9 @@ function Console() {
   const [createFailure, setCreateFailure] = useState<{ requestId?: string } | null>(null);
   const [drawerCamera, setDrawerCamera] = useState<Camera | null>(null);
   const loadCameras = useCallback(async () => {
-    setCameras(await request("/cameras", isCameras));
+    const requestStartedAt = performance.now();
+    const next = await request("/cameras", isCameras);
+    setCameras(next.map(camera => cameraSnapshot(camera, requestStartedAt)));
   }, []);
   const loadLogs = useCallback(async (cursors: LogCursors = [null, null, null], history: LogCursorHistory = [[], [], []]) => {
     const generation = ++logRequestId.current;
@@ -661,11 +664,18 @@ function CameraStatus({ camera }: { camera: Camera }) {
   const [, refreshExpiry] = useState(0);
   useEffect(() => {
     if (camera.observation_status !== "fresh" || camera.observation_expires_at === null) return;
-    const delay = Date.parse(camera.observation_expires_at) - Date.now();
-    if (delay < 0) return;
-    const timer = window.setTimeout(() => refreshExpiry(value => value + 1), delay + 1);
+    let timer: number | undefined;
+    const schedule = () => {
+      const delay = remainingObservationMs(camera);
+      if (delay <= 0) {
+        refreshExpiry(value => value + 1);
+        return;
+      }
+      timer = window.setTimeout(schedule, Math.min(delay + 1, 2_147_483_647));
+    };
+    schedule();
     return () => window.clearTimeout(timer);
-  }, [camera.observation_status, camera.observation_expires_at]);
+  }, [camera]);
   const status = effectiveStatus(camera);
   return <span className="camera-status">{statusLabel(status)}</span>;
 }

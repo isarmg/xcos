@@ -30,6 +30,9 @@
 失败不更新。`observation_expires_at` 是其有效期上限，按请求开始时间加上
 `3 × status_interval_secs + request_timeout_secs` 计算。失败或启动时将有效期清空，但保留成功时间与状态；
 API 按当前时间再次判定过期，时钟回拨到观测之前也不能把它当作新观测。
+`observation_remaining_ms` 是按同一 Server 时间计算的剩余有效毫秒数，向下取整；`stale` / `unknown` 返回 `0`。
+Web 从请求开始时的浏览器单调时间建立有效期，扣除请求耗时，不使用浏览器墙上时钟与 Server 时间戳比较；
+浏览器时钟偏差或手动调整时间不会改变观测的有效期。
 `last_seen_at` 仍可能由 Client 快照刷新，不表示媒体清单读取成功，不能用作媒体观测时间。
 
 Web 显示“观测已过期”或“尚无有效观测”，详情同时显示最后有效媒体观测时间、保存的媒体状态和 Client

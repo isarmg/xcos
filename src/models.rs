@@ -34,6 +34,7 @@ pub struct CameraRecord {
 #[derive(Clone, Serialize)]
 pub struct CameraView {
     pub observation_status: ObservationStatus,
+    pub observation_remaining_ms: u64,
     pub id: Uuid,
     pub name: String,
     pub location: String,
@@ -144,6 +145,46 @@ mod camera_view_tests {
     }
 
     #[test]
+    fn observation_lifetime_is_server_relative_and_matches_serialized_freshness() {
+        let observed = DateTime::parse_from_rfc3339("2026-10-11T04:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let mut record = camera_record(observed);
+        let unknown = CameraView::from_record_at(&record, observed).unwrap();
+        assert_eq!(unknown.observation_status, ObservationStatus::Unknown);
+        assert_eq!(unknown.observation_remaining_ms, 0);
+
+        record.last_observed_at = Some(observed);
+        record.observation_expires_at = Some(observed + chrono::Duration::seconds(30));
+        for (elapsed_us, status, remaining_ms) in [
+            (-1_000_000, ObservationStatus::Stale, 0),
+            (0, ObservationStatus::Fresh, 30_000),
+            (750_000, ObservationStatus::Fresh, 29_250),
+            (29_999_000, ObservationStatus::Fresh, 1),
+            (29_999_500, ObservationStatus::Fresh, 0),
+            (30_000_000, ObservationStatus::Stale, 0),
+            (31_000_000, ObservationStatus::Stale, 0),
+        ] {
+            let view = CameraView::from_record_at(
+                &record,
+                observed + chrono::Duration::microseconds(elapsed_us),
+            )
+            .unwrap();
+            assert_eq!(view.observation_status, status);
+            assert_eq!(view.observation_remaining_ms, remaining_ms);
+            let serialized = serde_json::to_value(&view).unwrap();
+            assert_eq!(serialized["observation_remaining_ms"], remaining_ms);
+            assert_eq!(view.last_observed_at, Some(observed));
+            assert_eq!(view.status, "online");
+        }
+
+        record.observation_expires_at = None;
+        let invalidated = CameraView::from_record_at(&record, observed).unwrap();
+        assert_eq!(invalidated.observation_status, ObservationStatus::Stale);
+        assert_eq!(invalidated.observation_remaining_ms, 0);
+    }
+
+    #[test]
     fn stored_camera_metadata_must_be_decoded_without_silent_defaults() {
         let mut record = camera_record(Utc::now());
         let view = CameraView::from_record(&record).unwrap();
@@ -160,8 +201,20 @@ mod camera_view_tests {
 
 impl CameraView {
     pub fn from_record(value: &CameraRecord) -> Result<Self, serde_json::Error> {
+        Self::from_record_at(value, Utc::now())
+    }
+
+    fn from_record_at(value: &CameraRecord, now: DateTime<Utc>) -> Result<Self, serde_json::Error> {
+        let observation_status = value.observation_status_at(now);
+        let observation_remaining_ms = value
+            .observation_expires_at
+            .filter(|_| observation_status == ObservationStatus::Fresh)
+            .map_or(0, |expires| {
+                (expires - now).num_milliseconds().max(0) as u64
+            });
         Ok(Self {
-            observation_status: value.observation_status_at(Utc::now()),
+            observation_status,
+            observation_remaining_ms,
             id: value.id,
             name: value.name.clone(),
             location: value.location.clone(),
