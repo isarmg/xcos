@@ -1,4 +1,5 @@
 import { startAfterFonts } from "@xcss/web/web-fonts";
+import { startServerCorners } from "@xcss/web/admin-ui/server-corners";
 import { DateRangeField, type CalendarDateRange } from "@xcss/web/admin-ui/date-range";
 import "@xcss/web/admin-ui/date-range.css";
 import { displayLabel } from "./display-labels";
@@ -714,5 +715,6 @@ const Root = createXcssAdminApplication({
 const root = document.getElementById("root");
 if (root === null) throw new Error("The React root element is missing");
 void startAfterFonts(() => {
+  startServerCorners(document);
   createRoot(root).render(<StrictMode><Root /></StrictMode>);
 });
