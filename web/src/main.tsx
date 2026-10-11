@@ -194,7 +194,10 @@ function Console() {
   useEffect(() => { if (view === "logs" && logRange !== null) void loadLogs(); }, [loadLogs, logRange, view]);
   useEffect(() => {
     const source = new EventSource(apiPath("/events/stream"));
-    source.addEventListener("open", () => { void refreshSnapshot().catch((error) => toast(errorText(error), "error")); });
+    source.addEventListener("open", () => {
+      void refreshSnapshot().catch((error) => toast(errorText(error), "error"));
+      refreshVisibleLogs.current();
+    });
     source.addEventListener("resync-required", () => {
       toast(t("事件流曾中断，正在重新同步当前状态", "The event stream was interrupted; current state is being resynchronized"), "warning");
       void refreshSnapshot().catch((error) => toast(errorText(error), "error"));

@@ -1459,3 +1459,269 @@ fn log_ranges_validate_dates_and_bind_both_endpoints_to_cursors() {
     assert!(cursor_id(Some(&cursor), "2022-02-01/2023-02-03", "events").is_err());
     assert!(cursor_id(Some(&cursor), &scope, "audit").is_err());
 }
+
+async fn assert_new_ptz_intent_supersedes_lost_response(first_action: &str, second_action: &str) {
+    use tower::ServiceExt as _;
+    let directory = tempfile::tempdir().unwrap();
+    let pool = crate::sqlite::initialize_test_pool(&format!(
+        "sqlite://{}",
+        directory.path().join("ptz-order.sqlite3").display()
+    ))
+    .await
+    .unwrap();
+    sqlx::query("INSERT INTO _common_administrators(administrator_id,username,password_hash,created_at_micros,updated_at_micros) VALUES('ptz-test','ptz-test','fixture',0,0)").execute(&pool).await.unwrap();
+    let camera = Uuid::new_v4();
+    insert_test_client(&pool, camera, "ptz-order").await;
+    let token = "B".repeat(43);
+    sqlx::query("UPDATE xcocs SET token_hash=?, last_seen_at=? WHERE id=?")
+        .bind(hash_secret(&token).to_vec())
+        .bind(Utc::now())
+        .bind(camera)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let state = test_state(pool.clone());
+    // Authentication is outside this regression: inject the fixture administrator
+    // at the route boundary, retaining the real PTZ handler and snapshot handler.
+    let app = Router::new()
+        .route(
+            "/ptz/{id}",
+            post(
+                |state: State<AppState>,
+                 path: Path<Uuid>,
+                 body: xcss::server_cli::ContractJson<PtzRequest>| async move {
+                    ptz(
+                        CurrentUser {
+                            id: "ptz-test".into(),
+                        },
+                        state,
+                        path,
+                        body,
+                    )
+                    .await
+                },
+            ),
+        )
+        .route("/snapshot", put(client_snapshot))
+        .with_state(state);
+    let snapshot_body = json!({"protocol":CLIENT_PAIRING_PROTOCOL,"command_capacity":8,"command_results":[],"cameras":[{
+        "id":camera,"name":"ptz-order","location":"","adapter_kind":"onvif",
+        "identity":{"manufacturer":null,"model":null,"firmware_version":null,"serial_number":null},
+        "capabilities":{"video":"supported","main_stream":"supported","sub_stream":"unsupported","local_recording":"supported","server_recording":"supported","ptz":"supported","events":"unsupported","audio_input":"unsupported","audio_output":"unsupported"},
+        "streams":[{"profile":"main","video_codec":null,"audio_codec":null,"width":null,"height":null,"frame_rate":null}],
+        "has_sub_stream":false,"enabled":true,"storage_mode":"server","status":"online","health_message":null
+    }]});
+    let snapshot = |body: Value| {
+        axum::http::Request::builder()
+            .method("PUT")
+            .uri("/snapshot")
+            .header("authorization", format!("Bearer {token}"))
+            .header("content-type", "application/json")
+            .body(Body::from(body.to_string()))
+            .unwrap()
+    };
+    let command = |action: &str| {
+        axum::http::Request::builder()
+            .method("POST")
+            .uri(format!("/ptz/{camera}"))
+            .header("content-type", "application/json")
+            .body(Body::from(json!({"action":action,"pan":0.5}).to_string()))
+            .unwrap()
+    };
+    let initial = app
+        .clone()
+        .oneshot(snapshot(snapshot_body.clone()))
+        .await
+        .unwrap();
+    assert_eq!(initial.status(), StatusCode::OK);
+    let movement = app.clone().oneshot(command(first_action)).await.unwrap();
+    assert_eq!(movement.status(), StatusCode::ACCEPTED);
+    let movement: Value = serde_json::from_slice(
+        &axum::body::to_bytes(movement.into_body(), 65536)
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    let old_id: Uuid = serde_json::from_value(movement["command_id"].clone()).unwrap();
+    // Server commits delivered_at, but the client never consumes the body.
+    let lost = app
+        .clone()
+        .oneshot(snapshot(snapshot_body.clone()))
+        .await
+        .unwrap();
+    assert_eq!(lost.status(), StatusCode::OK);
+    drop(lost);
+    let capacity_ids = (0..127).map(|_| Uuid::new_v4()).collect::<Vec<_>>();
+    for id in &capacity_ids {
+        sqlx::query("INSERT INTO device_commands(id,camera_id,client_id,kind,payload,created_at,expires_at) VALUES(?,?,?,'ptz','{\"action\":\"move\"}',?,?)")
+            .bind(id).bind(camera).bind(camera).bind(Utc::now()).bind(Utc::now()+chrono::Duration::seconds(10)).execute(&pool).await.unwrap();
+    }
+    let full = app.clone().oneshot(command(second_action)).await.unwrap();
+    assert_eq!(full.status(), StatusCode::TOO_MANY_REQUESTS);
+    let pending_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM device_commands WHERE camera_id=? AND status='pending'",
+    )
+    .bind(camera)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        pending_count, 128,
+        "capacity refusal changed earlier intents"
+    );
+    for id in &capacity_ids {
+        sqlx::query("DELETE FROM device_commands WHERE id=?")
+            .bind(id)
+            .execute(&pool)
+            .await
+            .unwrap();
+    }
+    // A failed insertion must roll back replacement of the earlier intent.
+    sqlx::query("CREATE TRIGGER reject_ptz_fixture BEFORE INSERT ON device_commands BEGIN SELECT RAISE(ABORT,'fixture insert failure'); END").execute(&pool).await.unwrap();
+    let rejected = app.clone().oneshot(command(second_action)).await.unwrap();
+    assert_eq!(rejected.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    let old_status: String = sqlx::query_scalar("SELECT status FROM device_commands WHERE id=?")
+        .bind(old_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        old_status, "pending",
+        "failed admission replaced the old intent"
+    );
+    sqlx::query("DROP TRIGGER reject_ptz_fixture")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let other_client = Uuid::new_v4();
+    insert_test_client(&pool, other_client, "other-client").await;
+    upsert_test_camera(&pool, other_client, other_client, "other-client-camera").await;
+    let unsent = Uuid::new_v4();
+    let terminal = Uuid::new_v4();
+    let separate_client_command = Uuid::new_v4();
+    for (id, owner, target, status) in [
+        (unsent, camera, camera, "pending"),
+        (terminal, camera, camera, "succeeded"),
+        (
+            separate_client_command,
+            other_client,
+            other_client,
+            "pending",
+        ),
+    ] {
+        sqlx::query("INSERT INTO device_commands(id,camera_id,client_id,kind,payload,status,created_at,expires_at) VALUES(?,?,?,'ptz','{\"action\":\"move\"}',?,?,?)")
+            .bind(id).bind(target).bind(owner).bind(status).bind(Utc::now()).bind(Utc::now()+chrono::Duration::seconds(10)).execute(&pool).await.unwrap();
+    }
+    let stopped = app.clone().oneshot(command(second_action)).await.unwrap();
+    for (id, expected) in [
+        (unsent, "expired"),
+        (terminal, "succeeded"),
+        (separate_client_command, "pending"),
+    ] {
+        let status: String = sqlx::query_scalar("SELECT status FROM device_commands WHERE id=?")
+            .bind(id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(status, expected);
+    }
+    let unsent_receipt = device_command_status(
+        CurrentUser {
+            id: "ptz-test".into(),
+        },
+        State(test_state(pool.clone())),
+        Path((camera, unsent)),
+    )
+    .await
+    .unwrap();
+    assert_eq!(unsent_receipt.0["state"], "expired");
+    assert_eq!(stopped.status(), StatusCode::ACCEPTED);
+    let stopped: Value = serde_json::from_slice(
+        &axum::body::to_bytes(stopped.into_body(), 65536)
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    let new_id: Uuid = serde_json::from_value(stopped["command_id"].clone()).unwrap();
+    let next = app
+        .clone()
+        .oneshot(snapshot(snapshot_body.clone()))
+        .await
+        .unwrap();
+    assert_eq!(next.status(), StatusCode::OK);
+    let next: Value =
+        serde_json::from_slice(&axum::body::to_bytes(next.into_body(), 65536).await.unwrap())
+            .unwrap();
+    assert_eq!(next["commands"].as_array().unwrap().len(), 1);
+    assert_eq!(next["commands"][0]["id"], json!(new_id));
+    // Advance only the persisted delivery timestamp past retry cooldown; no
+    // sleep or real device is needed and the original ten-second expiry remains.
+    sqlx::query("UPDATE device_commands SET delivered_at=? WHERE id=?")
+        .bind(Utc::now() - chrono::Duration::seconds(6))
+        .bind(old_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let mut receipt_body = snapshot_body.clone();
+    receipt_body["command_results"] =
+        json!([{"id":new_id,"outcome":"succeeded","error_code":null}]);
+    let after = app.clone().oneshot(snapshot(receipt_body)).await.unwrap();
+    assert_eq!(after.status(), StatusCode::OK);
+    let after: Value = serde_json::from_slice(
+        &axum::body::to_bytes(after.into_body(), 65536)
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    assert!(
+        after["commands"].as_array().unwrap().is_empty(),
+        "older command reappeared after the later intent succeeded: {after}"
+    );
+    let receipt = device_command_status(
+        CurrentUser {
+            id: "ptz-test".into(),
+        },
+        State(test_state(pool.clone())),
+        Path((camera, old_id)),
+    )
+    .await
+    .unwrap();
+    assert_eq!(receipt.0["state"], "unconfirmed");
+    let subsequent = app.clone().oneshot(command("move")).await.unwrap();
+    assert_eq!(subsequent.status(), StatusCode::ACCEPTED);
+    let completed_status: String =
+        sqlx::query_scalar("SELECT status FROM device_commands WHERE id=?")
+            .bind(new_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        completed_status, "succeeded",
+        "new intent changed a terminal receipt"
+    );
+    let subsequent: Value = serde_json::from_slice(
+        &axum::body::to_bytes(subsequent.into_body(), 65536)
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    let delivered = app.oneshot(snapshot(snapshot_body)).await.unwrap();
+    assert_eq!(delivered.status(), StatusCode::OK);
+    let delivered: Value = serde_json::from_slice(
+        &axum::body::to_bytes(delivered.into_body(), 65536)
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(delivered["commands"][0]["id"], subsequent["command_id"]);
+}
+
+#[tokio::test]
+async fn ptz_stop_prevents_lost_snapshot_move_from_reappearing() {
+    assert_new_ptz_intent_supersedes_lost_response("move", "stop").await;
+}
+
+#[tokio::test]
+async fn ptz_move_prevents_lost_snapshot_stop_from_reappearing() {
+    assert_new_ptz_intent_supersedes_lost_response("stop", "move").await;
+}

@@ -177,6 +177,20 @@ pub(super) async fn ptz(
     let expires_at = now + chrono::Duration::seconds(10);
     let mut transaction = state.pool.begin_with("BEGIN IMMEDIATE").await?;
     reserve_device_command(&mut transaction, client_id, request.action == "stop").await?;
+    // PTZ requests describe the newest movement intent. A response lost after
+    // delivery must not let an older move (or stop) reappear after this intent.
+    // Preserve delivered_at: previously sent actions remain unconfirmed rather
+    // than claiming they were never executed. Admission and replacement commit
+    // together, so a rejected new request cannot discard the previous intent.
+    sqlx::query(
+        "UPDATE device_commands SET status = 'expired', finished_at = ? \
+         WHERE camera_id = ? AND client_id = ? AND kind = 'ptz' AND status = 'pending'",
+    )
+    .bind(now)
+    .bind(camera.id)
+    .bind(client_id)
+    .execute(&mut *transaction)
+    .await?;
     sqlx::query(
         "INSERT INTO device_commands \
          (id, camera_id, client_id, kind, payload, created_at, expires_at) \

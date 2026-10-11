@@ -3,7 +3,7 @@ import test from "node:test";
 import { loadOriginalMain } from "./fixtures/original-main.mjs";
 import { HookHost, walk, textContent } from "./fixtures/hook-host.mjs";
 
-const { RecordingsView, CameraDrawer, localDateInput } = await loadOriginalMain();
+const { Console, RecordingsView, CameraDrawer, localDateInput } = await loadOriginalMain();
 const settle = () => new Promise(resolve => setImmediate(resolve));
 function deferred() {
   let resolve, reject;
@@ -103,7 +103,7 @@ test("recording date edits and newer searches ignore old success and failure", a
   search();
   globalThis.probeRequest = () => latest.promise;
   search();
-  latest.resolve([{ ...segment, start: "2026-10-02T12:00:00Z" }]);
+  latest.resolve([{ ...segment, start: new Date("2026-10-02T12:00:00").toISOString() }]);
   await settle();
   superseded.reject(new Error("Old request failure"));
   await settle();
@@ -185,4 +185,86 @@ test("PTZ controls follow supported, unsupported, and unknown capabilities", () 
     assert.equal(panel.length, support === "supported" ? 1 : 0);
     host.unmount();
   }
+});
+
+
+function logConsole(t, responder, hash = "#logs") {
+  const sources = [], calls = [];
+  const oldHash = window.location.hash;
+  window.location.hash = hash;
+  t.after(() => { window.location.hash = oldHash; });
+  const previousSource = globalThis.EventSource;
+  globalThis.EventSource = class {
+    listeners = new Map();
+    constructor() { sources.push(this); }
+    addEventListener(name, callback) { this.listeners.set(name, callback); }
+    close() {}
+    emit(name) { this.listeners.get(name)?.({}); }
+  };
+  t.after(() => { globalThis.EventSource = previousSource; });
+  globalThis.probeRequest = async (path, guard, signal) => {
+    calls.push({ path, signal });
+    if (path === "/logs/calendar") return { today: "2026-10-11" };
+    return responder(path);
+  };
+  const host = new HookHost(Console);
+  t.after(() => host.unmount());
+  const render = () => host.render();
+  const ready = async () => { render(); await settle(); render(); await settle(); render(); };
+  const open = () => sources.at(-1).emit("open");
+  const nodes = predicate => walk(render(), predicate);
+  return { calls, render, ready, open, nodes };
+}
+const historyPage = (id, next_cursor = null) => ({ format: "xcos-history-page-v1", items: [{ id }], next_cursor });
+
+test("ordinary event-stream reconnect reloads visible history missed during disconnect", async t => {
+  let revision = 1;
+  const logs = logConsole(t, () => historyPage(`revision-${revision}`));
+  await logs.ready();
+  const events = () => logs.nodes(node => typeof node.type === "function" && node.type.name === "EventsView")[0].props.events;
+  assert.equal(events()[0].id, "revision-1");
+  const before = logs.calls.length;
+  revision = 2;
+  // Ordinary transport reconnect emits open, not the server's lag-only
+  // resync-required notification. This server does not replay missed events.
+  logs.open(); await settle(); logs.render();
+  assert.equal(logs.calls.length, before + 3);
+  assert.equal(events()[0].id, "revision-2");
+});
+
+test("event-stream reconnect preserves the selected log range and page cursor", async t => {
+  const logs = logConsole(t, () => historyPage("row", "next-event-page"));
+  await logs.ready();
+  const dateField = () => logs.nodes(node => node.type === "date-range")[0];
+  dateField().props.onApply({ start: "2026-10-01", end: "2026-10-03" });
+  dateField().props.onValidityChange(true);
+  await logs.ready();
+  const navigation = logs.nodes(node => node.props["aria-label"] === "Event history pages")[0];
+  walk(navigation, node => node.type === "button" && textContent(node) === "Next page")[0].props.onClick();
+  await logs.ready();
+  const selectedRequests = logs.calls.slice(-3).map(call => call.path);
+  assert.match(selectedRequests[0], /start_date=2026-10-01&end_date=2026-10-03&cursor=next-event-page/);
+  logs.open(); await settle(); logs.render();
+  assert.deepEqual(logs.calls.slice(-3).map(call => call.path), selectedRequests);
+});
+
+test("reconnect does not query logs off-screen and supersedes stale in-flight history", async t => {
+  const offscreen = logConsole(t, () => historyPage("unused"), "#details");
+  await offscreen.ready();
+  offscreen.open(); await settle(); offscreen.render();
+  assert.equal(offscreen.calls.length, 0);
+
+  let response = () => historyPage("original");
+  const logs = logConsole(t, () => response());
+  await logs.ready();
+  const old = deferred();
+  response = () => old.promise;
+  logs.open(); logs.render();
+  const staleRequests = logs.calls.slice(-3);
+  response = () => historyPage("newest");
+  logs.open(); await settle(); logs.render();
+  assert.ok(staleRequests.every(call => call.signal.aborted));
+  old.resolve(historyPage("stale")); await settle(); logs.render();
+  const events = logs.nodes(node => typeof node.type === "function" && node.type.name === "EventsView")[0].props.events;
+  assert.equal(events[0].id, "newest");
 });
