@@ -6,7 +6,7 @@
 
 [公开下载页](https://github.com/isarmg/xcos/releases)上的 v1.0.0 归档早于当前 `xcos-db-v2` 实现。使用下载包时按包内说明；使用当前源码时按[开发指南](development.md)构建，并满足正式打包的干净源码与精确 annotated tag 条件。
 
-以下安装流程面向通过完整验证的同版归档，使用默认 `/opt/isarmg/xcos/releases/1.0.0` 路径。安装目标须为全新目录，归档不会覆盖已存在的发行树。
+以下安装流程面向通过完整验证的同版归档，使用默认 `/opt/isarmg/xcos/releases/1.0.1` 路径。安装目标须为全新目录，归档不会覆盖已存在的发行树。
 
 ## 2. 校验并安装归档
 
@@ -14,9 +14,9 @@
 
 ```sh
 sha256sum --check SHA256SUMS
-sudo tar -xzf xcos-1.0.0-x86_64-unknown-linux-gnu.tar.gz \
+sudo tar -xzf xcos-1.0.1-x86_64-unknown-linux-gnu.tar.gz \
   -C / --keep-old-files --no-overwrite-dir opt
-sudo /opt/isarmg/xcos/releases/1.0.0/deploy/xcosctl bootstrap
+sudo /opt/isarmg/xcos/releases/1.0.1/deploy/xcosctl bootstrap
 sudoedit /etc/isarmg/xcos.env
 ```
 
@@ -37,9 +37,9 @@ sudoedit /etc/isarmg/xcos.env
 ## 4. 初始化并启动
 
 ```sh
-sudo /opt/isarmg/xcos/releases/1.0.0/deploy/xcosctl bootstrap --confirm-config
-sudo /opt/isarmg/xcos/releases/1.0.0/deploy/xcosctl start
-sudo /opt/isarmg/xcos/releases/1.0.0/deploy/xcosctl status
+sudo /opt/isarmg/xcos/releases/1.0.1/deploy/xcosctl bootstrap --confirm-config
+sudo /opt/isarmg/xcos/releases/1.0.1/deploy/xcosctl start
+sudo /opt/isarmg/xcos/releases/1.0.1/deploy/xcosctl status
 ```
 
 确认步骤显式创建当前数据库与管理员，并只读校验配置；成功后移除临时管理员密码。已有数据库只校验。`status` 应报告已核实身份且就绪的服务。
@@ -52,7 +52,7 @@ sudo /opt/isarmg/xcos/releases/1.0.0/deploy/xcosctl status
 停止默认启动器管理的服务：
 
 ```sh
-sudo /opt/isarmg/xcos/releases/1.0.0/deploy/xcosctl stop
+sudo /opt/isarmg/xcos/releases/1.0.1/deploy/xcosctl stop
 ```
 
 希望由 systemd 常驻管理时，使用[systemd 方案](operations.md#systemd-运行方式)，同一部署只选择一种进程管理方式。

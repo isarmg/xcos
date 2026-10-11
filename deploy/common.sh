@@ -3,7 +3,7 @@
 # Shared with scripts/build.sh.
 # shellcheck disable=SC2034
 readonly XCOS_PRODUCT="xcos"
-readonly XCOS_VERSION="1.0.0"
+readonly XCOS_VERSION="1.0.1"
 
 die() {
   echo "$*" >&2
@@ -250,8 +250,8 @@ resolve_release_context() {
   [[ "$(basename "$releases_root")" == "releases" ]] ||
     die "Operational scripts must run from an immutable releases directory"
   XCOS_INSTALL_ROOT="$(dirname "$releases_root")"
-  [[ "$XCOS_RELEASE_ROOT" == */opt/isarmg/xcos/releases/1.0.0 ]] ||
-    die "Operational scripts must use the fixed Xcos 1.0.0 physical release suffix"
+  [[ "$XCOS_RELEASE_ROOT" == */opt/isarmg/xcos/releases/1.0.1 ]] ||
+    die "Operational scripts must use the fixed Xcos 1.0.1 physical release suffix"
   validate_absolute_path "$XCOS_INSTALL_ROOT" "install root"
   if [[ -n "${XCOS_NATIVE_INSTALL_ROOT:-}" ]]; then
     validate_absolute_path "$XCOS_NATIVE_INSTALL_ROOT" "XCOS_NATIVE_INSTALL_ROOT"

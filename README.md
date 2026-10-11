@@ -20,12 +20,12 @@
 
 ```sh
 sha256sum --check SHA256SUMS
-sudo tar -xzf xcos-1.0.0-x86_64-unknown-linux-gnu.tar.gz -C / --keep-old-files --no-overwrite-dir opt
-sudo /opt/isarmg/xcos/releases/1.0.0/deploy/xcosctl bootstrap
+sudo tar -xzf xcos-1.0.1-x86_64-unknown-linux-gnu.tar.gz -C / --keep-old-files --no-overwrite-dir opt
+sudo /opt/isarmg/xcos/releases/1.0.1/deploy/xcosctl bootstrap
 sudoedit /etc/isarmg/xcos.env
-sudo /opt/isarmg/xcos/releases/1.0.0/deploy/xcosctl bootstrap --confirm-config
-sudo /opt/isarmg/xcos/releases/1.0.0/deploy/xcosctl start
-sudo /opt/isarmg/xcos/releases/1.0.0/deploy/xcosctl status
+sudo /opt/isarmg/xcos/releases/1.0.1/deploy/xcosctl bootstrap --confirm-config
+sudo /opt/isarmg/xcos/releases/1.0.1/deploy/xcosctl start
+sudo /opt/isarmg/xcos/releases/1.0.1/deploy/xcosctl status
 ```
 
 确认配置前，填写管理员密码、独立密钥、公开 RTSPS 地址和证书路径，并配置 HTTPS 网关。`bootstrap --confirm-config` 显式初始化；普通启动不建库。Xcos、MediaMTX 和数据部署在同一台机器；网关可在另一台机器，通过显式配置的回源地址访问，MediaMTX 管理端口仍只供本机使用。远端网关配置见详细文档中的配置参考。

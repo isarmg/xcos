@@ -16,4 +16,4 @@
 - [请求和媒体流程](project-workflow.md)、[功能设计参考](feature-inventory-and-tradeoffs.md)。
 - [从零读懂 xcos](beginner-guide/README.md)：按章节学习 Rust、Web 和媒体服务。
 - [账号设置](account-settings.md)、[仓库职责](repository-boundary.md)、[公共支撑](common-support.md)、[安全审查](unsafe-audit.md)。
-- [1.0.0 发行记录](releases/1.0.0.md)、[项目首页](../README.md)。
+- [1.0.1 发行记录](releases/1.0.1.md)、[1.0.0 历史发行记录](releases/1.0.0.md)、[项目首页](../README.md)。

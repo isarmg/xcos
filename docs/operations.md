@@ -5,9 +5,9 @@
 ## 状态、启动与停止
 
 ```sh
-sudo /opt/isarmg/xcos/releases/1.0.0/deploy/xcosctl status
-sudo /opt/isarmg/xcos/releases/1.0.0/deploy/xcosctl start
-sudo /opt/isarmg/xcos/releases/1.0.0/deploy/xcosctl stop
+sudo /opt/isarmg/xcos/releases/1.0.1/deploy/xcosctl status
+sudo /opt/isarmg/xcos/releases/1.0.1/deploy/xcosctl start
+sudo /opt/isarmg/xcos/releases/1.0.1/deploy/xcosctl stop
 ```
 
 按需要执行相应命令。`status` 校验进程身份并查询实际 readiness，停服或未就绪时返回非零退出码。
@@ -23,8 +23,8 @@ sudo bash
 set -a
 source /etc/isarmg/xcos.env
 set +a
-/opt/isarmg/xcos/releases/1.0.0/bin/xcos doctor --offline
-/opt/isarmg/xcos/releases/1.0.0/bin/xcos doctor
+/opt/isarmg/xcos/releases/1.0.1/bin/xcos doctor --offline
+/opt/isarmg/xcos/releases/1.0.1/bin/xcos doctor
 exit
 ```
 
@@ -53,7 +53,7 @@ exit
 ## 文件布局
 
 ```text
-/opt/isarmg/xcos/releases/1.0.0/
+/opt/isarmg/xcos/releases/1.0.1/
 ├─ RELEASE-MANIFEST
 ├─ bin/{xcos,mediamtx}
 ├─ share/web-assets.json

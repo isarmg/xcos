@@ -65,7 +65,7 @@ require_empty_release_destination() {
       die "Releases destination must be a real directory"
     entries=("$INSTALL_ROOT/releases"/*)
     (( ${#entries[@]} == 0 )) ||
-      die "Releases destination is not empty; Xcos 1.0.0 publication is one-shot"
+      die "Releases destination is not empty; Xcos 1.0.1 publication is one-shot"
   fi
 }
 
