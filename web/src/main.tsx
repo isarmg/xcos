@@ -97,6 +97,9 @@ function Console() {
     setLoadedLogRange(null);
     setLogFailure(null);
     if (logRange === null) return;
+    // Stream refreshes must retain pending navigation, not the last completed page.
+    currentLogCursors.current = cursors;
+    logCursorHistory.current = history;
     const controller = new AbortController();
     logAbortController.current = controller;
     const query = logRange.start === logRange.end ? new URLSearchParams({ date: logRange.start }) : new URLSearchParams({ start_date: logRange.start, end_date: logRange.end });
@@ -109,8 +112,6 @@ function Console() {
       ]);
       if (generation !== logRequestId.current) return;
       setEvents(nextEvents.items); setOperations(nextOperations.items); setAudit(nextAudit.items);
-      currentLogCursors.current = cursors;
-      logCursorHistory.current = history;
       setNextLogCursors([nextEvents.next_cursor, nextOperations.next_cursor, nextAudit.next_cursor]);
       setLoadedLogRange(logRange);
     } catch (error) {

@@ -211,9 +211,10 @@ function logConsole(t, responder, hash = "#logs") {
   t.after(() => host.unmount());
   const render = () => host.render();
   const ready = async () => { render(); await settle(); render(); await settle(); render(); };
-  const open = () => sources.at(-1).emit("open");
+  const emit = name => sources.at(-1).emit(name);
+  const open = () => emit("open");
   const nodes = predicate => walk(render(), predicate);
-  return { calls, render, ready, open, nodes };
+  return { calls, render, ready, open, emit, nodes };
 }
 const historyPage = (id, next_cursor = null) => ({ format: "xcos-history-page-v1", items: [{ id }], next_cursor });
 
@@ -268,3 +269,51 @@ test("reconnect does not query logs off-screen and supersedes stale in-flight hi
   const events = logs.nodes(node => typeof node.type === "function" && node.type.name === "EventsView")[0].props.events;
   assert.equal(events[0].id, "newest");
 });
+
+
+for (const event of ["open", "resync-required", "system-event"]) {
+  for (const direction of ["First page", "Previous page", "Next page"]) {
+    test(`${event} preserves pending ${direction} navigation instead of restoring the completed page`, async t => {
+      let pending = null;
+      const page = path => {
+        const offset = Number(new URL(path, "https://camera.example").searchParams.get("cursor") ?? 0);
+        return { format: "xcos-history-page-v1", items: Array.from({ length: Math.min(100, 220 - offset) }, (_, i) => ({ id: `row-${offset + i}` })), next_cursor: offset < 200 ? String(offset + 100) : null };
+      };
+      const logs = logConsole(t, path => pending ? pending.promise : page(path));
+      await logs.ready();
+      logs.nodes(node => node.type === "date-range")[0].props.onValidityChange(true);
+      const click = name => {
+        const navigation = logs.nodes(node => node.props["aria-label"] === "Event history pages")[0];
+        const button = walk(navigation, node => node.type === "button" && textContent(node) === name)[0];
+        assert.equal(button.props.disabled, false);
+        button.props.onClick();
+      };
+      // Start on the 20-row final page for First/Previous, or page 2 for Next.
+      click("Next page"); await logs.ready();
+      if (direction !== "Next page") { click("Next page"); await logs.ready(); }
+      const delayed = deferred();
+      pending = delayed;
+      click(direction);
+      logs.render();
+      const navigationRequests = logs.calls.slice(-3);
+      pending = null;
+      logs.emit(event); await logs.ready();
+      assert.deepEqual(logs.calls.slice(-3).map(call => call.path), navigationRequests.map(call => call.path), "stream refresh must retain the user's in-flight destination");
+      assert.ok(navigationRequests.every(call => call.signal.aborted));
+      const events = () => logs.nodes(node => typeof node.type === "function" && node.type.name === "EventsView")[0].props.events;
+      const offset = direction === "First page" ? 0 : direction === "Previous page" ? 100 : 200;
+      assert.equal(events().length, offset === 200 ? 20 : 100);
+      assert.equal(events()[0].id, `row-${offset}`);
+      // Even a transport that completes despite abort must not restore stale rows.
+      delayed.resolve(historyPage("stale")); await logs.ready();
+      assert.equal(events()[0].id, `row-${offset}`);
+      if (offset !== 0) {
+        click("Previous page"); await logs.ready();
+        assert.equal(events()[0].id, `row-${offset - 100}`, "cursor history must follow the pending navigation too");
+      } else {
+        const navigation = logs.nodes(node => node.props["aria-label"] === "Event history pages")[0];
+        assert.equal(walk(navigation, node => node.type === "button" && textContent(node) === "Previous page")[0].props.disabled, true);
+      }
+    });
+  }
+}
