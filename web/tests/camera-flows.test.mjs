@@ -1,3 +1,5 @@
+import { registerHooks } from "node:module";
+import { assertCommittedLogRequests } from "./date-range.mjs";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { loadOriginalMain } from "./fixtures/original-main.mjs";
@@ -317,3 +319,57 @@ for (const event of ["open", "resync-required", "system-event"]) {
     });
   }
 }
+
+
+test("date-query guard allows only unchanged committed queries during draft editing", () => {
+  const before = ["/events/logs", "/media/operations", "/audit"].map(path => `${path}?date=2026-09-03`);
+  assertCommittedLogRequests([...before, ...before], before);
+  for (const query of ["date=2022-02-30", "date=2024-13-01", "date=0000-01-01", "start_date=2023-02-02&end_date=2022-02-01", "start_date=2026-09-03", "start_date=2026-09-03&end_date=2026-09-04", "date=2026-09-03&end_date=2026-09-04"]) {
+    for (const endpoint of ["/events/logs", "/media/operations", "/audit"]) {
+      assert.throws(() => assertCommittedLogRequests([...before, ...before, `${endpoint}?${query}`], before), /draft edits must never change/);
+    }
+  }
+});
+
+test("real date editor keeps invalid and unapplied drafts local while SSE refreshes committed logs", async t => {
+  const hooks = registerHooks({ resolve(specifier, context, next) {
+    if (specifier === "react" || specifier === "react/jsx-runtime") return { url: new URL("./fixtures/hook-host.mjs", import.meta.url).href, shortCircuit: true };
+    if (specifier === "./i18n.js") return { url: "data:text/javascript,export const t=(zh,en)=>en", shortCircuit: true };
+    return next(specifier, context);
+  } });
+  let DateRangeField;
+  try { ({ DateRangeField } = await import("@xcss/web/admin-ui/date-range")); } finally { hooks.deregister(); }
+  const logs = logConsole(t, () => historyPage("row"));
+  await logs.ready();
+  const date = new HookHost(DateRangeField, logs.nodes(node => node.type === "date-range")[0].props);
+  t.after(() => date.unmount());
+  const draft = (start, end) => {
+    for (const [endpoint, value] of [start, end].entries()) {
+      for (const [field, part] of value.split("-").entries()) {
+        walk(date.render(), node => node.type === "input")[endpoint * 3 + field].props.onChange({ target: { value: part } });
+      }
+    }
+    date.render(); logs.render();
+  };
+  const apply = () => walk(date.render(), node => node.props.onKeyDown)[0].props.onKeyDown({ key: "Enter", nativeEvent: {}, preventDefault() {} });
+  const requests = () => logs.calls.map(call => call.path).filter(path => path.includes("?"));
+  const before = requests();
+  for (const [start, end] of [["2022-02-30", "2023-02-02"], ["2024-13-01", "2025-01-01"], ["0000-01-01", "2025-01-01"], ["2023-02-02", "2022-02-01"]]) {
+    draft(start, end);
+    const count = requests().length;
+    apply(); await logs.ready();
+    assert.equal(requests().length, count, "invalid Enter causes no request");
+    logs.open(); await logs.ready();
+    assert.equal(requests().length, count + 3, "SSE still refreshes all committed logs");
+    assertCommittedLogRequests(requests(), before);
+  }
+  const beforeDraft = requests().length;
+  draft("2026-10-01", "2026-10-03");
+  await logs.ready();
+  assert.equal(requests().length, beforeDraft, "a valid draft also waits for Enter");
+  assertCommittedLogRequests(requests(), before);
+  logs.open(); await logs.ready();
+  assertCommittedLogRequests(requests(), before);
+  apply(); await logs.ready();
+  assert.ok(requests().slice(-3).every(path => path.endsWith("?start_date=2026-10-01&end_date=2026-10-03")));
+});

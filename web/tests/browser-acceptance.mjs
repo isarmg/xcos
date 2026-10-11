@@ -127,7 +127,7 @@ try {
         };
         if (path.endsWith("/events/logs")) {
           const date = url.searchParams.get("date") ?? url.searchParams.get("start_date"), unacknowledged = url.searchParams.get("unacknowledged");
-          logQueries.push({ path, date, end_date: url.searchParams.get("end_date"), limit: url.searchParams.get("limit"), offset: url.searchParams.get("offset") });
+          logQueries.push({ path, search: url.search, date, end_date: url.searchParams.get("end_date"), limit: url.searchParams.get("limit"), offset: url.searchParams.get("offset") });
           eventQueries.push(unacknowledged);
           if (date === "2026-09-05") return fulfillHistory([]);
           if (date === "2026-09-03") return fulfillHistory(Array.from({ length: 220 }, (_, index) => ({ id: `past-event-${index}`, camera_id: camera.id, kind: "camera.status", severity: "info", message: "验收事件", acknowledged_at: null, created_at: "2026-09-02T16:00:00Z", server_created_at: "2026-09-03 00:00:00 +08:00" })));
@@ -135,13 +135,13 @@ try {
         }
         if (path.endsWith("/media/operations")) {
           const date = url.searchParams.get("date") ?? url.searchParams.get("start_date");
-          logQueries.push({ path, date, end_date: url.searchParams.get("end_date"), limit: url.searchParams.get("limit"), offset: url.searchParams.get("offset") });
+          logQueries.push({ path, search: url.search, date, end_date: url.searchParams.get("end_date"), limit: url.searchParams.get("limit"), offset: url.searchParams.get("offset") });
           return fulfillHistory(date === "2026-09-03" ? Array.from({ length: 160 }, (_, index) => ({ id: `past-operation-${index}`, camera_id: camera.id, generation: 1, kind: "reconcile_camera", state: "succeeded", reason: "camera.updated", requested_by: null, attempt: 1, max_attempts: 3, created_at: "2026-09-02T16:00:00Z", server_created_at: "2026-09-03 00:00:00 +08:00", started_at: null, finished_at: null, retry_at: null, error_code: null, error_message: null })) : []);
         }
         if (path.endsWith("/audit")) {
           if (failAudit) { failAudit = false; return route.fulfill({ status: 500, json: { code: "platform.internal", message: "SECRET database path", retryable: false, request_id: "audit-failure-123" } }); }
           const date = url.searchParams.get("date") ?? url.searchParams.get("start_date");
-          logQueries.push({ path, date, end_date: url.searchParams.get("end_date"), limit: url.searchParams.get("limit"), offset: url.searchParams.get("offset") });
+          logQueries.push({ path, search: url.search, date, end_date: url.searchParams.get("end_date"), limit: url.searchParams.get("limit"), offset: url.searchParams.get("offset") });
           return fulfillHistory(date === "2026-09-05" ? [] : date === "2026-09-03" ? Array.from({ length: 140 }, (_, index) => ({ id: `past-audit-${index}`, user_id: administratorId, action: "camera.updated", entity_type: "camera", entity_id: camera.id, details: { generation: 1, note: "x".repeat(60_000) }, created_at: "2026-09-02T16:00:00Z", server_created_at: "2026-09-03 00:00:00 +08:00" })) : [{ id: "audit-1", user_id: administratorId, action: "camera.updated", entity_type: "camera", entity_id: camera.id, details: { generation: 1 }, created_at: time, server_created_at: serverTime }]);
         }
         if (path.endsWith("/recordings")) { assert.equal(url.searchParams.get("camera_id"), camera.id); return route.fulfill({ json: [{ start: time, duration: 60 }] }); }
@@ -300,7 +300,7 @@ try {
         assert.ok(pagerBox.y >= rectangles.bottom, "log pagination follows its table");
       }
       assert.ok(logQueries.every(query => query.date && query.limit === null && query.offset === null));
-      await checkDateRangeValidation(serverDatePicker, () => logQueries.length, "2026-09-03", "2026-09-04");
+      await checkDateRangeValidation(serverDatePicker, () => logQueries.map(query => `${query.path}${query.search}`), "2026-09-03", "2026-09-04");
       await expect(page.getByRole("table", { name: "监控事件" }).locator("tbody tr")).toHaveCount(100);
       assert.equal(logQueries.at(-1).end_date, "2026-09-04");
       assert.ok(logQueries.slice(-3).every(query => query.end_date === "2026-09-04"));
