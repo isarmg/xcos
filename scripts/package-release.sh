@@ -23,24 +23,29 @@ media_version="$(awk -F= '$1 == "version" { print $2 }' "$SOURCE_ROOT/config/med
 curl --fail --location --retry 3 --output "$TEMPORARY/mediamtx.tar.gz" \
   "https://github.com/bluenviron/mediamtx/releases/download/$media_version/mediamtx_${media_version}_linux_amd64.tar.gz"
 tar -xzf "$TEMPORARY/mediamtx.tar.gz" -C "$TEMPORARY" mediamtx LICENSE
-mkdir -p "$TEMPORARY/archive/licenses"
-XCOS_NATIVE_INSTALL_ROOT="$TEMPORARY/archive/opt/isarmg/xcos" \
+XCOS_INSTALL_ROOT="$TEMPORARY/archive" \
   XCOS_BUILD_TARGET="${XCOS_BUILD_TARGET:-$TEMPORARY/build}" \
   XCOS_MEDIAMTX_SOURCE="$TEMPORARY/mediamtx" \
   bash "$SOURCE_ROOT/scripts/build.sh"
-release_root="$TEMPORARY/archive/opt/isarmg/xcos/releases/$XCOS_VERSION"
+release_root="$TEMPORARY/archive"
 verify_release "$release_root"
-install -m 0444 "$TEMPORARY/LICENSE" "$TEMPORARY/archive/licenses/MediaMTX-LICENSE"
+chmod 0755 "$release_root"
+mkdir "$release_root/licenses"
+install -m 0644 "$TEMPORARY/LICENSE" "$TEMPORARY/archive/licenses/MediaMTX-LICENSE"
 for name in OFL.txt CJK-LICENSE.txt NORMAL-LICENSE.txt; do
-  install -m 0444 "$SOURCE_ROOT/web/node_modules/@xcss/web/dist/web-fonts/$name" "$TEMPORARY/archive/licenses/$name"
+  install -m 0644 "$SOURCE_ROOT/web/node_modules/@xcss/web/dist/web-fonts/$name" "$TEMPORARY/archive/licenses/$name"
 done
-install -m 0444 "$SOURCE_ROOT/docs/releases/$XCOS_VERSION.md" "$TEMPORARY/archive/README.md"
+chmod 0755 "$release_root/licenses"
+write_release_manifest "$release_root" "$TEMPORARY/repacked-manifest"
+install -m 0644 "$TEMPORARY/repacked-manifest" "$release_root/RELEASE-MANIFEST"
+chmod 0755 "$release_root"
+verify_release "$release_root"
 epoch="$(git -C "$SOURCE_ROOT" show -s --format=%ct HEAD)"
 tar --sort=name --mtime="@$epoch" --owner=0 --group=0 --numeric-owner \
-  -C "$TEMPORARY/archive" -czf "$TEMPORARY/$ARCHIVE" README.md licenses opt
+  -C "$TEMPORARY/archive" -czf "$TEMPORARY/$ARCHIVE" .
 mkdir "$TEMPORARY/extracted"
 tar -xzf "$TEMPORARY/$ARCHIVE" -C "$TEMPORARY/extracted"
-verify_release "$TEMPORARY/extracted/opt/isarmg/xcos/releases/$XCOS_VERSION"
+verify_release "$TEMPORARY/extracted"
 python3 - "$TEMPORARY" "$OUTPUT" "$ARCHIVE" <<'PUBLISH'
 import hashlib, os, stat, sys
 
@@ -104,4 +109,4 @@ finally:
     os.close(staging)
     os.close(output)
 PUBLISH
-printf 'Verified immutable release archive: %s\n' "$OUTPUT/$ARCHIVE"
+printf 'Verified release archive: %s\n' "$OUTPUT/$ARCHIVE"

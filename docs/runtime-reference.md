@@ -69,7 +69,7 @@ owner 是规范 UUIDv4，时间为 UTC RFC 3339 且 expiry 晚于 updated。产�
 
 应用全生命周期持有数据库 instance 排他、maintenance 共享和 runtime app lock。正常运行持有数据库父目录
 `.state-maintenance.lock` 共享锁与 `.state-instance.lock` 独占锁；runtime 目录使用同一公共锁协议并维护 PID。
-MediaMTX 由 `flock --no-fork` 持有 companion lock。维护工具必须按database maintenance -> runtime -> MediaMTX
+MediaMTX 由 systemd 跟踪。离线维护前通过主 unit 停止整组服务，再按 database maintenance -> runtime
 取得排他锁。不要用不同 runtime 指向同一数据库；database identity lock 仍会拒绝第二实例。
 
 ## 日志与历史容量
@@ -107,7 +107,7 @@ login/session 成功响应必须严格是
 合同错误。wire 中固定的 `role:"admin"` 仅用于跨产品响应一致性，不对应数据库列。实例授权码与
 Client token 是独立的设备数据面凭据，与 Administrator 身份无关。
 
-`BOOTSTRAP_ADMIN_USERNAME`、管理 API 和内置 Web 是 Server 范围。Client 保管的设备账号、MediaMTX internal
+`init --username`、管理 API 和内置 Web 是 Server 范围。Client 保管的设备账号、MediaMTX internal
 auth body、媒体 JWT、WHEP/HLS 播放与录像状态不使用 Administrator username；运维轮换管理 username/
 密码时不能同步改实例授权码或媒体 key，反之亦然。
 

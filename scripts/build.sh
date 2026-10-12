@@ -5,13 +5,13 @@ SOURCE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 # shellcheck source=/dev/null
 source "$SOURCE_ROOT/deploy/common.sh"
 
-INSTALL_ROOT="${XCOS_NATIVE_INSTALL_ROOT:-/opt/isarmg/xcos}"
+INSTALL_ROOT="${XCOS_INSTALL_ROOT:?set XCOS_INSTALL_ROOT to a new absolute staging directory}"
 BUILD_TARGET="${XCOS_BUILD_TARGET:-/var/tmp/xcos-build}"
 MEDIA_SOURCE="${XCOS_MEDIAMTX_SOURCE:-}"
 APP_SOURCE="${XCOS_APP_BINARY_SOURCE:-}"
 SOURCE_REVISION="${XCOS_SOURCE_REVISION:-}"
 
-validate_absolute_path "$INSTALL_ROOT" "XCOS_NATIVE_INSTALL_ROOT"
+validate_absolute_path "$INSTALL_ROOT" "XCOS_INSTALL_ROOT"
 validate_absolute_path "$BUILD_TARGET" "XCOS_BUILD_TARGET"
 [[ -n "$MEDIA_SOURCE" ]] || die "XCOS_MEDIAMTX_SOURCE is required"
 validate_absolute_path "$MEDIA_SOURCE" "XCOS_MEDIAMTX_SOURCE"
@@ -20,20 +20,19 @@ assert_regular_file "$MEDIA_SOURCE" "MediaMTX source binary"
 # Prebuilt inputs exist only to keep the temporary-root lifecycle test fast.
 # They can never publish under a production path.
 if [[ -n "$APP_SOURCE" ]]; then
-  FIXTURE_ROOT="${XCOS_NATIVE_TEST_ROOT:-}"
+  FIXTURE_ROOT="${XCOS_BUILD_TEST_ROOT:-}"
   [[ -n "$FIXTURE_ROOT" ]] ||
-    die "prebuilt application inputs are restricted to the native lifecycle test"
-  validate_absolute_path "$FIXTURE_ROOT" "XCOS_NATIVE_TEST_ROOT"
-  assert_private_directory "$FIXTURE_ROOT" "native lifecycle test root"
+    die "prebuilt application inputs are restricted to the release packaging test"
+  validate_absolute_path "$FIXTURE_ROOT" "XCOS_BUILD_TEST_ROOT"
+  assert_private_directory "$FIXTURE_ROOT" "release packaging test root"
   for fixture_path in "$SOURCE_ROOT" "$INSTALL_ROOT" "$BUILD_TARGET" "$MEDIA_SOURCE" "$APP_SOURCE"; do
     [[ -z "$fixture_path" || "$fixture_path" == "$FIXTURE_ROOT/"* ]] ||
-      die "native lifecycle fixture paths must remain below XCOS_NATIVE_TEST_ROOT"
+      die "release packaging fixture paths must remain below XCOS_BUILD_TEST_ROOT"
   done
 fi
 require_command awk
 require_command cmp
 require_command find
-require_command flock
 require_command sha256sum
 require_command sort
 [[ "$(uname -m)" == "x86_64" ]] ||
@@ -47,26 +46,9 @@ is_source_revision() {
 }
 
 require_empty_release_destination() {
-  local entry
-  local -a entries
-  assert_no_symlink_components "$INSTALL_ROOT" "install root"
-  if [[ ! -e "$INSTALL_ROOT" && ! -L "$INSTALL_ROOT" ]]; then
-    return
-  fi
-  [[ -d "$INSTALL_ROOT" && ! -L "$INSTALL_ROOT" ]] ||
-    die "Install root must be a real directory"
-  entries=("$INSTALL_ROOT"/*)
-  for entry in "${entries[@]}"; do
-    [[ "$entry" == "$INSTALL_ROOT/releases" ]] ||
-      die "Install root contains an unexpected pre-existing entry"
-  done
-  if [[ -e "$INSTALL_ROOT/releases" || -L "$INSTALL_ROOT/releases" ]]; then
-    [[ -d "$INSTALL_ROOT/releases" && ! -L "$INSTALL_ROOT/releases" ]] ||
-      die "Releases destination must be a real directory"
-    entries=("$INSTALL_ROOT/releases"/*)
-    (( ${#entries[@]} == 0 )) ||
-      die "Releases destination is not empty; Xcos 1.0.3 publication is one-shot"
-  fi
+  assert_no_symlink_components "$(dirname "$INSTALL_ROOT")" "output parent"
+  [[ ! -e "$INSTALL_ROOT" && ! -L "$INSTALL_ROOT" ]] ||
+    die "Release destination already exists; refusing to overwrite: $INSTALL_ROOT"
 }
 
 shopt -s nullglob dotglob
@@ -170,24 +152,31 @@ STATIC_CONTRACT="$(sha256sum -- "$STATIC_MANIFEST" | awk '{print $1}')"
   die "Xcos binary is not bound to the exact source revision"
 
 require_empty_release_destination
-ensure_directory "$INSTALL_ROOT" 755 "install root"
-RELEASES_ROOT="$INSTALL_ROOT/releases"
-ensure_directory "$RELEASES_ROOT" 755 "releases directory"
-STAGE_CONTAINER="$(mktemp -d "$RELEASES_ROOT/.${XCOS_VERSION}.stage.XXXXXX")"
-STAGE="$STAGE_CONTAINER/opt/isarmg/xcos/releases/$XCOS_VERSION"
-mkdir -p -- "$STAGE/bin" "$STAGE/config" "$STAGE/deploy" "$STAGE/share"
-install -m 0555 -- "$APP_STAGE" "$STAGE/bin/xcos"
-install -m 0555 -- "$MEDIA_SOURCE" "$STAGE/bin/mediamtx"
-install -m 0444 -- "$SOURCE_ROOT/config/mediamtx.yml" "$STAGE/config/mediamtx.yml"
-install -m 0444 -- "$SOURCE_ROOT/config/mediamtx.lock" "$STAGE/config/mediamtx.lock"
-for script in common.sh xcosctl; do
-  install -m 0555 -- "$SOURCE_ROOT/deploy/$script" "$STAGE/deploy/$script"
+ensure_directory "$(dirname "$INSTALL_ROOT")" 755 "output parent"
+STAGE_CONTAINER="$(mktemp -d "$(dirname "$INSTALL_ROOT")/.xcos-stage.XXXXXX")"
+STAGE="$STAGE_CONTAINER/payload"
+mkdir -p -- "$STAGE/bin" "$STAGE/config" "$STAGE/deploy" "$STAGE/systemd" "$STAGE/share"
+install -m 0755 -- "$APP_STAGE" "$STAGE/bin/xcos"
+install -m 0755 -- "$MEDIA_SOURCE" "$STAGE/bin/mediamtx"
+install -m 0644 -- "$SOURCE_ROOT/config/mediamtx.yml" "$STAGE/config/mediamtx.yml"
+install -m 0644 -- "$SOURCE_ROOT/config/mediamtx.lock" "$STAGE/config/mediamtx.lock"
+for script in xcosctl; do
+  install -m 0755 -- "$SOURCE_ROOT/deploy/$script" "$STAGE/deploy/$script"
 done
-for action in .bootstrap-action.sh .start-action.sh .status-action.sh .stop-action.sh; do
-  install -m 0444 -- "$SOURCE_ROOT/deploy/$action" "$STAGE/deploy/$action"
+for unit in xcos.service xcos-mediamtx.service; do
+  install -m 0644 -- "$SOURCE_ROOT/deploy/$unit" "$STAGE/systemd/$unit"
 done
-install -m 0444 -- "$STATIC_MANIFEST" "$STAGE/share/web-assets.json"
-find -P "$STAGE" -mindepth 1 -type d -exec chmod 0555 -- {} +
+for example in xcos.json.example mediamtx.env.example; do
+  install -m 0644 -- "$SOURCE_ROOT/config/$example" "$STAGE/config/$example"
+done
+install -m 0755 -- "$SOURCE_ROOT/install.sh" "$STAGE/install.sh"
+install -m 0644 -- "$SOURCE_ROOT/README.md" "$STAGE/README.md"
+if [[ -d "$SOURCE_ROOT/docs" ]]; then
+  cp -R "$SOURCE_ROOT/docs" "$STAGE/docs"
+  find "$STAGE/docs" -type f -exec chmod 0644 {} +
+fi
+install -m 0644 -- "$STATIC_MANIFEST" "$STAGE/share/web-assets.json"
+find -P "$STAGE" -mindepth 1 -type d -exec chmod 0755 -- {} +
 
 # Revalidate the bytes that will actually be published, closing mutation
 # windows between source validation and installation into the release stage.
@@ -208,30 +197,30 @@ find -P "$STAGE" -mindepth 1 -type d -exec chmod 0555 -- {} +
 
 RELEASE_MANIFEST="$TEMPORARY/RELEASE-MANIFEST"
 write_release_manifest "$STAGE" "$RELEASE_MANIFEST"
-install -m 0444 -- "$RELEASE_MANIFEST" "$STAGE/RELEASE-MANIFEST"
-chmod 0555 -- "$STAGE"
+install -m 0644 -- "$RELEASE_MANIFEST" "$STAGE/RELEASE-MANIFEST"
+chmod 0755 -- "$STAGE"
 verify_release "$STAGE"
 
-RELEASE_ROOT="$RELEASES_ROOT/$XCOS_VERSION"
+RELEASE_ROOT="$INSTALL_ROOT"
 [[ ! -e "$RELEASE_ROOT" && ! -L "$RELEASE_ROOT" ]] ||
   die "Release $XCOS_VERSION destination appeared during publication"
 # Open only the staging root mode for the rename boundary; every payload entry
-# remains read-only, and no runtime alias or service points at the destination.
+# remains unchanged, and no runtime alias or service points at the destination.
 chmod 0755 -- "$STAGE"
 mv -T -n -- "$STAGE" "$RELEASE_ROOT"
 [[ ! -e "$STAGE" && ! -L "$STAGE" ]] ||
   die "Release $XCOS_VERSION destination appeared concurrently"
 STAGE=""
-chmod 0555 -- "$RELEASE_ROOT"
+chmod 0755 -- "$RELEASE_ROOT"
 chmod -R u+w -- "$STAGE_CONTAINER" 2>/dev/null || true
 rm -rf -- "$STAGE_CONTAINER"
 STAGE_CONTAINER=""
 verify_release "$RELEASE_ROOT"
 
-if [[ -z "${XCOS_NATIVE_TEST_ROOT:-}" ]]; then
+if [[ -z "${XCOS_BUILD_TEST_ROOT:-}" ]]; then
   [[ -z "$(git -C "$SOURCE_ROOT" status --porcelain=v1 --untracked-files=all)" ]] ||
     die "Official publication changed the source tree"
 fi
 
-echo "Published immutable Xcos release: $RELEASE_ROOT"
-echo "Next: $RELEASE_ROOT/deploy/xcosctl bootstrap"
+echo "Published Xcos release: $RELEASE_ROOT"
+echo "Install the verified payload and follow docs/getting-started.md; this build does not start services."

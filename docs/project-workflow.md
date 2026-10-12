@@ -14,13 +14,13 @@ xcos 1.0.3
 │  ├─ Rust 1.99.0 -> x86_64-unknown-linux-gnu binary
 │  └─ Web、Rust、MediaMTX、配置 -> 不可变 release manifest
 ├─ 启动
-│  ├─ 验证固定 release + MediaMTX contract
+│  ├─ 验证当前配置、状态和 MediaMTX contract
 │  ├─ 解析当前配置与 Secret
-│  ├─ 取得 database/runtime/MediaMTX 锁
+│  ├─ 取得 data_dir单实例锁，systemd 跟踪 companion
 │  ├─ 验证当前 SQLite、Schema 与全部实例授权密文
 │  ├─ 启动 Rust API、reconciler 与 MediaMTX
 │  ├─ 控制面默认 loopback；生产可显式配置内网回源地址，本机回调与 MediaMTX API/playback 仍保留 loopback
-│  └─ Caddy 默认转发到本机上游；位于路由系统时，转发到同一项目服务器已配置的内网地址及对应端口
+│  └─ 已有 HTTPS 网关回源同一项目主机；RTSPS 和 ICE 分别配置
 ├─ Administrator 控制面
 │  ├─ login/session/logout -> Session + CSRF
 │  ├─ 授权实例/Client 设备快照 -> 摄像机期望态
@@ -31,7 +31,7 @@ xcos 1.0.3
 │  ├─ MediaMTX internal auth 回调
 │  └─ WHEP 实时预览 / HLS 回放
 └─ 运维
-   ├─ start/status/stop/doctor
+   ├─ systemctl控制/status/check
    └─ lifecycle + relocated smoke tests
 ```
 
@@ -42,25 +42,20 @@ xcos 1.0.3
 `scripts/build.sh` 只接受干净且 annotated `v1.0.3` 指向 HEAD 的 checkout、Linux x86_64 builder，以及与
 `config/mediamtx.lock` 匹配的 `linux_amd64` MediaMTX `v1.20.0`。Rust target 固定为
 `x86_64-unknown-linux-gnu`，没有其他架构、OS 或 libc 的正式构建分支。脚本构建 Web 和 source-bound
-Rust binary，生成完整 manifest，在同一文件系统暂存并验证后，以 no-clobber 语义发布固定版本目录。
+Rust binary，生成完整 manifest，在同一文件系统暂存并验证后，以 no-clobber 语义生成显式指定的 staging 目录，不启动服务。
 
-`xcosctl bootstrap`创建目录、0600环境文件和初始管理员输入材料，不启动服务、不覆盖配置、不回显随机Secret。`bootstrap --confirm-config`在审阅后通过stdin调用显式`init`创建当前库/管理员，再以`config validate`只读核验；既有库只验证，成功才移除临时密码。操作者
-编辑密码、配置 Client 可达且证书受信的 `rtsps://` 发布 origin 与证书/私钥并运行
-`xcosctl bootstrap --confirm-config` 后，`xcosctl start` 才按锁顺序启动 companion 和应用；运行机同样必须是 Linux x86_64。
-
-主机代理源资产固定为 `deploy/Caddyfile`，不进入应用生命周期脚本。三个上游默认使用
-`127.0.0.1:8080/8888/8889`；Caddy 位于路由系统时，通过 `XCOS_HTTP_UPSTREAM`、
-`XCOS_HLS_UPSTREAM` 和 `XCOS_WEBRTC_UPSTREAM` 指向同一项目服务器已配置的内网地址及对应端口。
-单个项目仍部署在同一台机器。根目录不存在第二份 Caddyfile；CI 核对模板及默认上游，拒绝容器 DNS 上游。
+按[安装指南](getting-started.md)建立普通 `isarmg-xcos` UID、私有 JSON 和独立状态目录，以同一 UID
+从 stdin 执行 `init --username admin`，再执行离线 `config validate`。这些步骤不依赖 `/run`。
+生产只由归档内的 systemd units 管理；`xcosctl` 仅转发给 systemctl。
+网关软件由现有基础设施管理，同源媒体、HTTPS、RTSPS TLS 和 ICE 要求见[配置参考](configuration.md)。
 
 ## 3. 正式进程启动顺序
 
-1. 验证进程物理位置、revision、target、API、Schema、Web、credential epoch、MediaMTX 和 manifest 全树。
-2. 解析环境；生产 Cookie 必须 Secure，资源使用 executable 内嵌快照并拒绝开发目录覆盖。
-3. 取得数据库 instance 排他锁和 maintenance 共享锁。
-4. runtime目录复用公共`.state-maintenance.lock`/`.state-instance.lock`并维护PID；MediaMTX 由脚本持有 companion lock。
-5. 私有复制并验证 SQLite generation、租约 singleton 与所有加密实例授权码。
-6. 启动后台 reconciler、HTTP 服务与 readiness；任何合同不能证明时 fail closed。
+1. systemd 为两个服务创建共享的私有 runtime 目录。
+2. companion 从应用 JSON 生成本机 callback/recordings 配置，加载独立 TLS/ICE 环境并以前台方式启动。
+3. 应用读取私有 JSON，验证当前数据、MediaMTX 文件和业务凭据。
+4. 应用取得 database/runtime instance 锁，启动 HTTP 与后台任务。正常启动不扫描发行全树。
+5. 检查两个 systemd unit 与实际 readiness；普通启动不会自动初始化。
 
 ## 4. Administrator 认证流程
 
@@ -143,10 +138,9 @@ Administrator Browser Session
 
 ## 8. 停机与代际数据边界
 
-`xcosctl stop` 通过 operations lock 串行生命周期动作，先停止应用，使数据库/reconciler/runtime 锁释放，再
-停止 MediaMTX。直接 kill 或乱序停止可能把外部效果留在 unknown，应保全日志后由 reconciler/人工判断。
+`systemctl stop xcos.service` 根据 unit 依赖先停止应用，再停止 MediaMTX，释放数据库/runtime 锁。直接 kill 或乱序停止可能把外部效果留在 unknown，应保全日志后由 reconciler/人工判断。
 
-普通运行不扫描其他代路径、不解析非当前Schema/密文，也不通过fallback修补数据。实例、runtime和companion锁分别核对物理身份，错误输入拒绝运行。
+普通运行不扫描其他代路径、不解析非当前Schema/密文，也不通过fallback修补数据。实例和 runtime 锁核对物理身份，systemd 管理 companion，错误输入拒绝运行。
 
 ## 9. Web 构建与 xcss 1.0.7 流程
 

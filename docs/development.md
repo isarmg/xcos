@@ -45,23 +45,21 @@ bash scripts/package-release.sh "$output"
 ## 8. 发布测试
 
 ```bash
-for script in scripts/*.sh deploy/*.sh deploy/.*-action.sh deploy/xcosctl; do
+for script in install.sh scripts/*.sh deploy/*.sh deploy/xcosctl; do
   bash -n "$script" || exit 1
 done
 ./scripts/lifecycle-test.sh
 ./scripts/relocated-smoke-test.sh
 ```
 
-lifecycle test 仅使用临时根，覆盖 no-clobber、合同外环境拒绝、秘密不回显、失败回滚、start/stop
-串行化及 symlink/hardlink 防御；relocated smoke 使用真实 Vite/Rust/SQLite，读取所有 hashed asset 并
-证明篡改后拒绝重启。
+lifecycle test 仅使用临时根，覆盖 systemctl 参数转发、systemd UID/runtime 合同、完整打包、no-clobber 与显式完整性验证；relocated smoke 使用真实 Vite/Rust/SQLite/MediaMTX，验证无需发行树的运行、离线初始化和所有内嵌资源。
 
 ## 11. Web 设计依赖与发布证明
 
 当前 Web 使用 xcss 的 admin-web、admin-shell、admin-ui、contracts、design-tokens、http-client、
 web-fonts、web-toolchain 八个内部模块，作为一个 @xcss/web 构建期包发布，不是生产运行服务。Node 固定为 `.node-version` 的 `26.7.0`。
 
-- 候选Rust输入固定 xcss `=1.0.7` / `b3a68b94e1b7bae53685bae07449e3f78e3c20a8`，一个 @xcss/web 包使用对应新tag URL与真实tarball的lock integrity。当前 revision 与对应 Web 包已在本地准备，尚未推送或发布；跨机器构建前须先发布这些精确输入，产品仍须完成自身正式构建和发行验收。
+- Rust输入固定 xcss `=1.0.11`，精确revision以Cargo.toml/Cargo.lock/xcss-product.toml为准；Web同版构建期包保持独立锁定，按最终源码执行验证。
 - 针对本次最终源码和最终发行物分别保存验证结果，统一 manifest、lockfile 和发布身份。
 
 ```bash
@@ -78,8 +76,7 @@ npm run test:browser
 Xcos CSS 仅保留业务布局，不覆盖平台 token 或定义私有字体。HLS 按需单独加载，完整功能保留；各资产遵循
 xcss 512 KiB 硬限制且不发布 source map。浏览器验收使用真实 dist，覆盖两种浏览器的系统/管理员、
 摄像头、录像、事件、云台键盘停止、对话框焦点和移动明暗主题无障碍。后续
-`scripts/build.sh` 把该 Hash 文件写入发行 manifest，`relocated-smoke-test.sh` 证明实际归档引用它并在篡改
-后拒绝启动。生产目录中不应出现 `node_modules`、源包、`vendor/xcss-design` 或远程 CSS URL。
+`scripts/build.sh` 把该 Hash 文件写入发行 manifest，`relocated-smoke-test.sh` 验证实际 binary 的全部内嵌资产；完整发行目录通过显式 `verify-release` 检查。生产目录中不应出现 `node_modules`、源包、`vendor/xcss-design` 或远程 CSS URL。
 
 设计测试或依赖安装失败时，不要复制本地 `reset.css` 临时绕过，也不要在 `index.html` 添加 CDN。应修复
 当前 xcss 来源/lockfile，重新生成整个 Web dist 和不可变 release。xcss 版本切换属于直接
@@ -119,9 +116,9 @@ npm ci --prefix web
 web/node_modules/.bin/xcss-build-server --config "$PWD/xcss-web-build.json" --mode development --no-install
 ```
 
-按当前配置解析器设置实验用数据库、凭据和 MediaMTX 环境，使用 `APP_ENV=development` 和回环绑定，先从stdin读取本地管理员密码执行`init --username admin`，再运行
+按当前配置解析器设置实验用数据库、凭据和 MediaMTX 环境，使用私有 JSON 或 `XCOS_*` 覆盖设置 `development=true` 和回环绑定，先从stdin读取本地管理员密码执行`init --username admin`，再运行
 `target/x86_64-unknown-linux-gnu/debug/xcos run`。默认使用这次构建内嵌的资源。需要目录热更新时，显式设置
-`XCSS_DEV_WEB_DIR="$PWD/web/dist"`，重新构建 Web 后 HTTP 就能读取新内容，无需重编 Rust；也可以
-在 `web` 运行 Vite，保持已有 `/api/v1` 和媒体代理。只有未绑定开发 binary 接受此选择，生产
-`APP_ENV=production` 与正式 `run --release-root` 都拒绝目录覆盖。未知资源返回 404，HTML 不缓存，其他
+`XCOS_STATIC_DIR="$PWD/web/dist"`，重新构建 Web 后 HTTP 就能读取新内容，无需重编 Rust；也可以
+在 `web` 运行 Vite，保持已有 `/api/v1` 和媒体代理。只有显式开发模式接受此选择；生产
+`XCOS_DEVELOPMENT=false` 拒绝目录覆盖。未知资源返回 404，HTML 不缓存，其他
 资源通过 SHA-256 ETag 校验缓存。

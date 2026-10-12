@@ -25,16 +25,9 @@ pub struct AppState {
 
 pub(crate) async fn serve(
     config: Config,
-    release_root: Option<&std::path::Path>,
     log_layer: &xcss::log::XcssStructuredLayer,
 ) -> anyhow::Result<()> {
     let config = Arc::new(config);
-    if release_root.is_some() {
-        anyhow::ensure!(
-            config.static_dir.is_none(),
-            "formal releases cannot override embedded Web assets"
-        );
-    }
     let web_directory = config
         .static_dir
         .as_ref()
@@ -47,7 +40,6 @@ pub(crate) async fn serve(
     sqlite::validate_current_database(&database)?;
     let application_lock = Arc::new(runtime_lock::ApplicationLock::acquire(
         &config.database_url,
-        &config.runtime_directory,
     )?);
     if config.development_mode {
         tracing::warn!(
@@ -224,7 +216,7 @@ pub(crate) async fn serve(
             .await?;
         let signals = xcss::server_runtime::ProcessSignals::install()?;
         let listeners = xcss::server_runtime::BoundListeners::bind(
-            crate::config::listener_addresses(config.bind_addr),
+            crate::config::listener_addresses(config.bind_addr, config.media_callback_bind),
         )?;
         tracing::info!(event = "common.runtime.started");
         let mut transport = xcss::server_runtime::HttpServer::new(listeners, signals);

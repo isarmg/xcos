@@ -15,7 +15,7 @@ npm run check:xcss
 npm run typecheck
 npm run build
 cd ../..
-for script in scripts/*.sh deploy/*.sh deploy/.*-action.sh deploy/xcosctl; do
+for script in install.sh scripts/*.sh deploy/*.sh deploy/xcosctl; do
   bash -n "$script"
 done
 ```
@@ -42,8 +42,9 @@ PTZ 排队的 best-effort 产品审计，以及管理员登录的公共事务审
 
 ## 8.5 媒体/发行测试
 
-验证 binary SHA/config mismatch、链接、权限、额外文件、路径重定位、companion lock、start/stop 并发、
-启动失败回滚和 hashed asset 篡改。使用临时根，禁止指向真实录像目录。
+验证 binary SHA/config mismatch、私有 JSON 权限、显式发行校验、无发行树运行、离线初始化、
+生成的 callback/recordings 和全部内嵌资产。unit 静态检查覆盖 UID、依赖、超时和 runtime 清理策略；
+目标主机另验收整组 start/stop/restart。使用临时根，禁止指向真实录像目录。
 
 ## 8.6 Web 测试
 

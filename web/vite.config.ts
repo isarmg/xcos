@@ -7,9 +7,9 @@ export default mergeConfig(createXcssReactViteConfig(), {
   server: {
     port: 5173,
     proxy: {
-      "/api/v1": "http://127.0.0.1:8080",
-      "/healthz": "http://127.0.0.1:8080",
-      "/readyz": "http://127.0.0.1:8080",
+      "/api/v1": "http://127.0.0.1:18106",
+      "/healthz": "http://127.0.0.1:18106",
+      "/readyz": "http://127.0.0.1:18106",
       "/media-webrtc": {
         target: "http://127.0.0.1:8889",
         rewrite: (path: string) => path.replace(/^\/media-webrtc/, ""),

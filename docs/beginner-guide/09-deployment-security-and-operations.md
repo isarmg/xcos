@@ -2,29 +2,28 @@
 
 ## 9.1 生产布局
 
-不可变 release tree、0600 环境、SQLite、runtime locks、MediaMTX config/contract 和 recordings 分区管理。
+只读程序、0600 JSON、SQLite、runtime locks、MediaMTX config/contract 和 recordings 分区管理。
 服务账户只能写业务状态，不得修改 binary、Web 或 manifest。Axum 默认/正式样例均监听
-`127.0.0.1:8080`；公网只暴露按 `deploy/Caddyfile` 安装的可信代理路由。
+`127.0.0.1:18106`；公网只暴露已有可信 HTTPS 网关和必要媒体入口。
 
 ## 9.2 上线流程
 
-验证 tag/归档/checksum；安装新精确版本目录；设置 ownership/mode；准备当前组合状态和 external key；运行
-release verify 与 offline doctor；把 `deploy/Caddyfile` 安装到受管 Caddy 配置并设置真实 TLS 站点；启动
-MediaMTX 后启动 Xcos；检查两个 readiness、登录、摄像头读取和实验播放。任一步失败停止，不覆盖原目录。
+验证 tag/归档/checksum；安装已验证的完整程序 payload；设置 ownership/mode；准备当前组合状态和 external key；运行
+显式 `verify-release` 与 离线check；确认已有 HTTPS 网关、RTSPS TLS 和 ICE 路由；通过 systemd 启动
+MediaMTX 和 Xcos；检查两个 readiness、登录、摄像头读取和实验播放。任一步失败停止，不覆盖原目录。
 
 ## 9.3 配置和 Secret
 
-管理员密码、credential key、JWT/signing material、摄像头密码与 TLS key 分开管理。环境文件只放必要
-引用/值且 0600。轮换要有变更窗口、备份、验证与明确回滚点。
+管理员密码、credential key、JWT/signing material、摄像头密码与 TLS key 分开管理。私有 JSON 和 companion 环境文件均为 0600，父目录 0700。轮换要有变更窗口、备份、验证与明确回滚点。
 
 ## 9.4 监控指标
 
 关注 readiness、登录拒绝、Session、operation backlog/age/unknown、lease、reconcile latency/error、
 MediaMTX API、publisher、播放错误、录像磁盘/inode、SQLite/WAL、审计写入 warning 和 SSE resync。
 
-## 9.5 日常 Doctor
+## 9.5 日常 离线 check
 
-offline doctor 验证 release/Schema/SQLite/key/MediaMTX 合同与录像目录；online 再探测运行进程。doctor
+离线check 验证 Schema/SQLite/key/MediaMTX 合同与录像目录；online 再探测运行进程。check
 失败是停止自动变更的信号，不是手改 metadata 或跳过检查的理由。
 
 ## 9.7 事件处置

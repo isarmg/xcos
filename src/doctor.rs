@@ -25,6 +25,7 @@ pub struct DoctorOptions {
     pub mediamtx_binary: PathBuf,
     pub recordings_directory: PathBuf,
     pub credentials_key: [u8; 32],
+    pub media_callback_bind: std::net::SocketAddr,
     pub app_ready_url: String,
     pub mediamtx_ready_url: String,
     pub offline: bool,
@@ -67,6 +68,7 @@ pub async fn run(options: &DoctorOptions) -> anyhow::Result<DoctorReport> {
         &options.mediamtx_binary,
         &options.mediamtx_config,
         &options.recordings_directory,
+        options.media_callback_bind,
     )
     .await?;
     recording_write_probe(&options.recordings_directory)?;
@@ -315,6 +317,7 @@ pub(crate) async fn verify_companion(
     binary_path: &Path,
     config_path: &Path,
     recordings_directory: &Path,
+    callback: std::net::SocketAddr,
 ) -> anyhow::Result<()> {
     require_secure_file(contract_path, "MediaMTX contract")?;
     require_secure_file(binary_path, "MediaMTX binary")?;
@@ -322,6 +325,14 @@ pub(crate) async fn verify_companion(
     let directory = xcss::state_file::PrivateStateDirectory::open(recordings_directory)?;
 
     let contract = parse_contract(contract_path)?;
+    let supported_version = include_str!("../config/mediamtx.lock")
+        .lines()
+        .find_map(|line| line.strip_prefix("version="))
+        .expect("embedded companion version");
+    ensure!(
+        contract.version == supported_version,
+        "MediaMTX version is not supported by this application"
+    );
     ensure!(
         contract.platform == "linux_amd64",
         "MediaMTX companion platform is unsupported"
@@ -336,7 +347,7 @@ pub(crate) async fn verify_companion(
         version.trim() == contract.version,
         "MediaMTX binary version does not match its contract"
     );
-    verify_media_config(config_path, recordings_directory)?;
+    render_media_config(config_path, recordings_directory, callback)?;
     directory.verify_identity()?;
     Ok(())
 }
@@ -431,41 +442,61 @@ fn parse_contract(path: &Path) -> anyhow::Result<ParsedContract> {
     })
 }
 
-fn verify_media_config(path: &Path, recordings_directory: &Path) -> anyhow::Result<()> {
+/// Render only deployment-owned callback/storage values. TLS and ICE settings
+/// remain in the reviewed template and the companion's own environment.
+pub(crate) fn render_media_config(
+    path: &Path,
+    recordings: &Path,
+    callback: std::net::SocketAddr,
+) -> anyhow::Result<String> {
+    ensure!(
+        callback.ip().is_loopback() && callback.port() != 0,
+        "media callback must be a loopback socket"
+    );
     let content = String::from_utf8(read_limited(path, 1024 * 1024)?)
         .context("MediaMTX config is not UTF-8")?;
-    // Only the exact immutable template in this verified executing release can
-    // use the launcher's recordings_directory override. A copied or development
-    // YAML retains the strict on-disk recordPath contract.
-    let managed = if env!("XCOS_SOURCE_REVISION") == "unbound" {
-        false
-    } else {
-        let root = crate::release::executing_release_root()?;
-        managed_config_path(path, &root)
-    };
-    verify_media_config_content(&content, recordings_directory, managed)
+    let record_path = format!("{}/%path/%Y-%m-%d_%H-%M-%S-%f", recordings.display());
+    verify_record_path(&record_path, recordings)?;
+    for key in ["authHTTPAddress", "recordPath"] {
+        ensure!(
+            config_values(&content, key).len() == 1,
+            "MediaMTX template must declare exactly one {key}"
+        );
+    }
+    let mut generated = String::new();
+    for line in content.lines() {
+        let indentation = &line[..line.len() - line.trim_start().len()];
+        if line.trim_start().starts_with("authHTTPAddress:") {
+            generated.push_str(&format!(
+                "{indentation}authHTTPAddress: http://{callback}{}\n",
+                CONTRACT.media_auth_path
+            ));
+        } else if line.trim_start().starts_with("recordPath:") {
+            // JSON strings are valid YAML quoted scalars, including unusual path characters.
+            generated.push_str(&format!(
+                "{indentation}recordPath: {}\n",
+                serde_json::to_string(&record_path)?
+            ));
+        } else {
+            generated.push_str(line);
+            generated.push('\n');
+        }
+    }
+    verify_media_config_content(&generated, recordings, callback)?;
+    Ok(generated)
 }
 
+#[cfg(test)]
 const MANAGED_MEDIA_CONFIG: &str = include_str!("../config/mediamtx.yml");
+#[cfg(test)]
 const MANAGED_RECORD_PATH: &str = "/var/lib/isarmg/xcos/recordings/%path/%Y-%m-%d_%H-%M-%S-%f";
-
-fn managed_config_path(path: &Path, root: &Path) -> bool {
-    path.as_os_str() == root.join("config/mediamtx.yml").as_os_str()
-}
 
 fn verify_media_config_content(
     content: &str,
     recordings_directory: &Path,
-    managed: bool,
+    callback: std::net::SocketAddr,
 ) -> anyhow::Result<()> {
-    let directory = xcss::state_file::PrivateStateDirectory::open(recordings_directory)?;
-    if managed {
-        ensure!(
-            content == MANAGED_MEDIA_CONFIG,
-            "managed MediaMTX template does not match the executing release"
-        );
-    }
-    let auth_address = format!("http://127.0.0.1:8080{}", CONTRACT.media_auth_path);
+    let auth_address = format!("http://{callback}{}", CONTRACT.media_auth_path);
     for (key, expected) in [
         ("authMethod", "http"),
         ("authHTTPAddress", auth_address.as_str()),
@@ -484,16 +515,15 @@ fn verify_media_config_content(
         paths.len() == 1,
         "MediaMTX config must declare exactly one recordPath"
     );
-    let configured = paths[0].trim_matches(['\'', '"']);
-    if managed {
-        ensure!(
-            configured == MANAGED_RECORD_PATH,
-            "managed MediaMTX template has an invalid inert recordPath"
-        );
+    let configured = paths[0];
+    let decoded: String;
+    let configured = if configured.starts_with('"') {
+        decoded = serde_json::from_str(configured)?;
+        decoded.as_str()
     } else {
-        verify_record_path(configured, recordings_directory)?;
-    }
-    directory.verify_identity()?;
+        configured.trim_matches('\'')
+    };
+    verify_record_path(configured, recordings_directory)?;
     Ok(())
 }
 
@@ -512,14 +542,15 @@ fn verify_record_path(configured: &str, recordings_directory: &Path) -> anyhow::
     ensure!(!root.is_empty(), "MediaMTX recordPath has an empty root");
     let root = PathBuf::from(root);
     ensure!(root.is_absolute(), "MediaMTX recordPath must be absolute");
-    let source = xcss::state_file::PrivateStateDirectory::open(&root)?;
-    let expected = xcss::state_file::PrivateStateDirectory::open(recordings_directory)?;
     ensure!(
-        fs::canonicalize(&root)? == fs::canonicalize(recordings_directory)?,
+        root == recordings_directory,
         "MediaMTX recordPath points at a different recordings directory"
     );
-    source.verify_identity()?;
-    expected.verify_identity()?;
+    ensure!(
+        root.components()
+            .all(|part| matches!(part, Component::RootDir | Component::Normal(_))),
+        "recording path must be normalized"
+    );
     Ok(())
 }
 
@@ -670,45 +701,23 @@ mod tests {
     }
 
     #[test]
-    fn managed_template_override_requires_exact_template_and_private_physical_storage() {
-        #[cfg(unix)]
-        use std::os::unix::fs::PermissionsExt;
+    fn relocated_template_generates_matching_callback_and_storage() {
         let temporary = private_directory();
-        assert!(managed_config_path(
-            &temporary.path().join("config/mediamtx.yml"),
-            temporary.path()
-        ));
-        assert!(!managed_config_path(
-            &temporary.path().join("config/./mediamtx.yml"),
-            temporary.path()
-        ));
-        // The real caller derives `managed` only from the executing verified
-        // full release and its fixed config path; this tests that branch's bytes.
-        verify_media_config_content(MANAGED_MEDIA_CONFIG, temporary.path(), true).unwrap();
-        for changed in [
-            format!("{MANAGED_MEDIA_CONFIG}\n# changed\n"),
-            format!("{MANAGED_MEDIA_CONFIG}\nrecordPath: {MANAGED_RECORD_PATH}\n"),
-            MANAGED_MEDIA_CONFIG.replace("recordFormat: fmp4", "recordFormat: mpegts"),
-            MANAGED_MEDIA_CONFIG.replace(MANAGED_RECORD_PATH, "/tmp/other/%path/%Y"),
-        ] {
-            assert!(verify_media_config_content(&changed, temporary.path(), true).is_err());
+        let copied = temporary.path().join("arbitrary-name.yml");
+        fs::write(&copied, MANAGED_MEDIA_CONFIG).unwrap();
+        for callback in ["127.0.0.1:18107", "127.0.0.2:19107", "[::1]:19107"] {
+            let callback = callback.parse().unwrap();
+            let generated = render_media_config(&copied, temporary.path(), callback).unwrap();
+            assert!(generated.contains(&format!(
+                "authHTTPAddress: http://{callback}{}",
+                CONTRACT.media_auth_path
+            )));
+            verify_media_config_content(&generated, temporary.path(), callback).unwrap();
         }
         assert!(
-            verify_media_config_content(MANAGED_MEDIA_CONFIG, temporary.path(), false).is_err()
+            render_media_config(&copied, temporary.path(), "0.0.0.0:18107".parse().unwrap())
+                .is_err()
         );
-        let copied = temporary.path().join("mediamtx.yml");
-        fs::write(&copied, MANAGED_MEDIA_CONFIG).unwrap();
-        assert!(verify_media_config(&copied, temporary.path()).is_err());
-        #[cfg(unix)]
-        {
-            let alias = temporary.path().join("alias");
-            std::os::unix::fs::symlink(temporary.path(), &alias).unwrap();
-            assert!(verify_media_config_content(MANAGED_MEDIA_CONFIG, &alias, true).is_err());
-            fs::set_permissions(temporary.path(), fs::Permissions::from_mode(0o755)).unwrap();
-            assert!(
-                verify_media_config_content(MANAGED_MEDIA_CONFIG, temporary.path(), true).is_err()
-            );
-        }
     }
 
     #[test]
@@ -716,9 +725,19 @@ mod tests {
         let temporary = private_directory();
         let path = format!("{}/%path/%Y-%m-%d", temporary.path().display());
         let content = MANAGED_MEDIA_CONFIG.replace(MANAGED_RECORD_PATH, &path);
-        verify_media_config_content(&content, temporary.path(), false).unwrap();
+        verify_media_config_content(
+            &content,
+            temporary.path(),
+            "127.0.0.1:18107".parse().unwrap(),
+        )
+        .unwrap();
         let other = private_directory();
-        assert!(verify_media_config_content(&content, other.path(), false).is_err());
+        assert!(verify_media_config_content(
+            &content,
+            other.path(),
+            "127.0.0.1:18107".parse().unwrap()
+        )
+        .is_err());
         for value in [
             format!("{}/%path/%path", temporary.path().display()),
             format!("{}/%path/../escape", temporary.path().display()),
@@ -730,7 +749,7 @@ mod tests {
         assert!(verify_media_config_content(
             &format!("{content}\nrecordPath: {path}\n"),
             temporary.path(),
-            false,
+            "127.0.0.1:18107".parse().unwrap(),
         )
         .is_err());
     }
@@ -959,7 +978,7 @@ mod tests {
             &config,
             format!(
                 "authMethod: http\n\
-                 authHTTPAddress: http://127.0.0.1:8080/internal/v1/media/auth\n\
+                 authHTTPAddress: http://127.0.0.1:18107/internal/v1/media/auth\n\
                  apiAddress: 127.0.0.1:9997\n\
                  playbackAddress: 127.0.0.1:9996\n\
                  recordFormat: fmp4\n\
@@ -976,6 +995,7 @@ mod tests {
             mediamtx_binary: binary.clone(),
             recordings_directory: recordings.clone(),
             credentials_key: key,
+            media_callback_bind: "127.0.0.1:18107".parse().unwrap(),
             app_ready_url: "http://127.0.0.1:1/readyz".to_string(),
             mediamtx_ready_url: "http://127.0.0.1:1/v3/info".to_string(),
             offline: true,

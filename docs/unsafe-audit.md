@@ -10,12 +10,12 @@
 | --- | --- |
 | `web/` | 嵌入 Server 的浏览器应用 |
 | `config/` | JSON/环境配置示例及固定 MediaMTX 合同 |
-| `deploy/` | 生命周期脚本、systemd 与反向代理示例 |
+| `deploy/` | systemd units、薄 systemctl 封装与构建辅助函数 |
 | `scripts/` | 构建、打包、检查和验收入口 |
 | `schema/` | 当前 SQLite 定义及生成结果 |
 | `docs/` | 使用、架构和验收说明 |
 
-发行树中的生命周期材料也使用 `deploy/`，Rust 和 Shell 的固定清单同步校验该布局。构建和测试脚本不进入用户运行闭包。旧发行文档保持其原版本路径，不作为当前推荐入口。
+发行包中的 systemd units 和 ctl 使用 `deploy/`，Rust 和 Shell 的固定清单同步校验该布局。构建和测试脚本不进入用户运行闭包。旧发行文档保持其原版本路径，不作为当前推荐入口。
 
 Server 只消费 Client 上报的身份、三态能力和健康状态。模拟协议/浏览器 fixture、真实 MediaMTX 与真实摄像头是不同证据；本次没有真实摄像头可用，不扩大厂商、型号或固件支持声明。Linux AMD64 的生命周期、重定位和正式制品验证仍由对应入口执行，macOS 格式检查不能代替这些结果。
 

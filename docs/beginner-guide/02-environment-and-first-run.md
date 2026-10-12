@@ -19,9 +19,9 @@ cargo +1.99.0 check --locked --all-targets
 
 ## 2.3 第一次开发启动
 
-开发模式只绑定回环，未提供 `BIND_ADDR` 时生产解析器也安全默认到 `127.0.0.1:8080`。使用上方统一构建
-得到的内嵌 Web binary 和临时 SQLite，按 `config/xcos.env.example`/当前配置解析器设置必要变量后运行开发
-`run`。正式 source-bound binary 只能从验证过的 release root 启动；对外访问由可信 TLS 网关转发。
+开发模式只绑定回环，未提供 `XCOS_BIND` 时生产解析器也安全默认到 `127.0.0.1:18106`。使用上方统一构建
+得到的内嵌 Web binary 和临时 SQLite，按 `config/xcos.json.example`/当前配置解析器设置必要变量后运行开发
+`run`。source-bound 和开发 binary 均不要求发行树；生产对外访问由可信 HTTPS 网关转发。
 
 ```bash
 read -rs -p 'Local administrator password: ' LOCAL_ADMIN_PASSWORD
@@ -32,12 +32,12 @@ target/x86_64-unknown-linux-gnu/debug/xcos config validate
 target/x86_64-unknown-linux-gnu/debug/xcos run
 ```
 
-仅开发目录热更新时设置 `XCSS_DEV_WEB_DIR="$PWD/web/dist"`；重新构建 Web 后无需重编 Rust。
-正式发行拒绝此覆盖。
+仅开发目录热更新时设置 `XCOS_STATIC_DIR="$PWD/web/dist"`；重新构建 Web 后无需重编 Rust。
+生产模式拒绝此覆盖。
 
 ## 2.4 启动 companion
 
-正式发行实验使用已安装版本树内的 `deploy/xcosctl start`，由它统一验证并启动 MediaMTX 和 xcos。它与上节未绑定的开发进程分别运行在独立实验目录，选择其中一种方式即可。自动化媒体与生命周期实验使用[开发指南](../development.md)中的脚本，再分别检查应用和 companion readiness。
+正式部署使用 `systemctl start xcos.service`，由 systemd 以同一普通 UID 启动 MediaMTX 和 xcos。开发进程使用独立临时目录。自动化媒体与生命周期实验使用[开发指南](../development.md)中的脚本，再分别检查应用和 companion readiness。
 
 ## 2.5 第一个摄像机实例练习
 
@@ -52,7 +52,7 @@ target/x86_64-unknown-linux-gnu/debug/xcos run
 - 创建操作持久化并到达可解释终态；
 - 浏览器只拿短期播放授权；
 - 重启取得独占实例锁后，pending 可继续，上一进程遗留的所有 running 转为 unknown，即使 operation lease 尚未到期；全局 lease 保留，运行期不抢占健康 owner；
-- offline/online doctor 都通过。
+- 离线check与在线status均通过。
 
 ## 2.7 常见失败
 

@@ -46,32 +46,32 @@ xcss 提供管理员创建、凭据管理与停用能力。摄像头 RTSP/ONVIF 
 |---|---|---|---|---|---|---|
 | SEN-P-001 | 浏览器摄像头监控产品：Rust 控制面管理摄像头和授权，MediaMTX 承担 RTSP、WHEP、HLS 与录像 | `src/routes/`、`src/mediamtx.rs`、`config/mediamtx.yml` | 核心 | 高 | 删除任一主组件都会失去控制面或媒体面，项目不再完整 | 摄像头添加、直播、录像、重启链路 |
 | SEN-P-002 | Server 开发、测试、正式编译目标唯一为 `x86_64-unknown-linux-gnu` | `xcss::server_target`、`build.rs`、`rust-toolchain.toml` | 保障 | 高 | 放宽后会产生未经验证的平台二进制，且可能与 companion 平台失配 | 非目标编译必须失败；目标常量与 Cargo target 一致 |
-| SEN-P-003 | 正式运行主机唯一为 Linux AMD64；原生命令再次核对 `uname` | `deploy/common.sh`、`scripts/build.sh`、`deploy/xcosctl` | 保障 | 中 | 错误架构可能走到状态创建或 companion 启动后才失败 | Linux x86_64 正例；aarch64/非 Linux 负例 |
-| SEN-P-004 | MediaMTX companion 固定为 `v1.20.0 linux_amd64` 和精确 SHA-256 | `config/mediamtx.lock`、`scripts/build.sh`、`deploy/xcosctl start` | 保障 | 高 | API、配置和媒体行为不可复现，发行身份失去意义 | version 输出、platform、binary SHA 三者同时匹配 |
-| SEN-P-005 | 控制面和媒体面分离；Rust 不代理 RTSP 输入，也不转码视频 | `src/mediamtx.rs`、`deploy/Caddyfile` | 核心 | 高 | 把媒体搬入 Rust 会重写容量、协议和攻击面；删 companion 则无直播/录像 | Rust 路由不存在 RTSP 转发；MediaMTX path 实测 |
+| SEN-P-003 | 正式构建与运行目标为 Linux AMD64 GNU | `scripts/build.sh`、Rust target | 保障 | 中 | 错误平台无法执行正式制品 | Linux x86_64；非目标平台拒绝 |
+| SEN-P-004 | MediaMTX 固定 v1.20.0 linux_amd64 与 SHA-256 | `config/mediamtx.lock`、`doctor::verify_companion` | 保障 | 高 | 媒体行为不可复现 | version/platform/digest 同时匹配 |
+| SEN-P-005 | 控制面与媒体面分离；Rust 不代理 RTSP、不转码 | `src/mediamtx.rs`、`config/mediamtx.yml` | 核心 | 高 | 删 companion 无直播录像 | 真实媒体发布播放 |
 | SEN-P-006 | 普通运行只接受当前合同并验证当前状态身份 | `src/main.rs` CLI、`src/sqlite/` | 保障 | 高 | 加入代际 reader 会长期扩大状态和测试矩阵 | init/run/config validate/status/help/version核心命令和只读state-contract；普通运行拒绝非当前库，不提供历史转换入口 |
 | SEN-P-007 | Server 端 React 19 + TypeScript strict + Vite 8 控制台位于 `web/` | `web/package.json`、`web/src/main.tsx` | 建议保留 | 高 | API 和媒体能力仍在，但没有内置可操作控制台 | typecheck、Vite build、发行静态树验证 |
 | SEN-P-008 | Server Rust与单个 @xcss/web 包候选以xcss 1.0.7完整revision、URL及真实tarball integrity受控；当前基础库 revision 与归档已本地准备且未推送发布，产品本轮验收和发行状态单独记录 | Cargo、一个 `@xcss/web` 依赖、manifest/lock | 保障 | 高 | 平台行为分叉；独立构建通过不代表主分支改动已纳入产品 Release | [本项目 CI](https://github.com/isarmg/xcos/actions)及[正式发行资产](https://github.com/isarmg/xcos/releases)；后续更新仍须复验锁图和发行身份 |
-| SEN-P-009 | `config/` 只存可提交样例和受审 companion 合同；真实 Secret 不进仓库 | `config/xcos.env.example`、`.gitignore` | 开发运维 | 低 | Secret 容易误提交，或部署字段缺少审查入口 | Secret 扫描；样例字段与 parser 对照 |
-| SEN-P-010 | 原生发行树提供单一xcosctl生命周期入口，仓库另给完整systemd部署示例；两者不能同时管理相同进程和数据 | `deploy/xcosctl`、`deploy/.*-action.sh`、`deploy/*.service` | 开发运维 | 中 | 双重进程管理可能启动半套服务或竞争端口 | xcosctl临时根测试通过；systemd示例尚未在真实主机执行 |
+| SEN-P-009 | `config/` 只存可提交样例和受审 companion 合同；真实 Secret 不进仓库 | `config/xcos.json.example`、`.gitignore` | 开发运维 | 低 | Secret 容易误提交，或部署字段缺少审查入口 | Secret 扫描；样例字段与 parser 对照 |
+| SEN-P-010 | 只由 systemd 管理两个前台进程，同为普通 isarmg-xcos UID；ctl 仅封装 systemctl | `deploy/*.service`、`deploy/xcosctl` | 开发运维 | 中 | 重复管理会争抢进程与数据 | unit 静态测试和目标主机启动验收 |
 
 ## 3. 配置、启动和生命周期
 
 | ID | 当前功能/特性与真实行为 | 实现/代码锚点 | 分类 | 复杂度 | 删除后的确定后果 | 最低验证/边界 |
 |---|---|---|---|---|---|---|
-| SEN-C-001 | 生产环境文件固定为 `/etc/isarmg/xcos.env`，而不是项目子目录 | `deploy/common.sh`、`config/*.env.example` | 开发运维 | 中 | 多路径来源会造成操作者修改无效文件或混合配置 | bootstrap、start、文档和测试使用同一平面路径 |
-| SEN-C-002 | `xcosctl bootstrap` 排他创建配置、状态和运行目录，不覆盖既有环境文件 | `deploy/xcosctl`、`deploy/.bootstrap-action.sh` | 保障 | 高 | 重跑初始化可能无提示覆盖 Secret 或状态定位 | 首次创建、第二次 no-clobber、symlink 负例 |
-| SEN-C-003 | bootstrap 写入默认 canonical `BOOTSTRAP_ADMIN_USERNAME=admin`，随机生成 JWT Secret、32 字节 credential key 和初始密码且不回显 | `deploy/.bootstrap-action.sh` | 保障 | 中 | 终端、CI 日志或 shell history 可能泄漏高价值 Secret，或首管身份与 Server parser 漂移 | lifecycle 日志中搜索 Secret；username 精确；文件 mode 0600 |
-| SEN-C-004 | 人工确认标记阻止未审阅初始 Secret 直接启动 | `xcos.REVIEW-SECRETS-BEFORE-START`、`xcosctl bootstrap` | 保障 | 低 | 默认凭据可能直接进入运行环境 | 未确认 start 失败；`--confirm-config` 后标记消失 |
-| SEN-C-005 | `BIND_ADDR` 缺省值和正式模板均为 `127.0.0.1:8080`；`APP_ENV=development` 进一步禁止显式外部绑定；生产使用 Secure `__Host-` Cookie | `src/config.rs`、`config/xcos.env.example`、`deploy/.bootstrap-action.sh`、`src/auth.rs` | 保障 | 中 | 默认监听任意网卡会绕开 TLS 网关；非 Secure 开发 Cookie 可能暴露到局域网 | 缺省 loopback、IPv4/IPv6 loopback正例；development 外部地址负例；正式样例一致 |
-| SEN-C-006 | `APP_JWT_SECRET` 至少 32 bytes，`CREDENTIALS_KEY` 必须标准 Base64 且解码恰为 32 bytes | `src/config.rs` | 保障 | 中 | 弱密钥或歧义 key 长度会降低媒体授权和凭据保护 | 缺失、短值、非法 Base64、31/33 bytes 负例 |
-| SEN-C-007 | `XCOS_RUNTIME_DIR` 与开发 `XCSS_DEV_WEB_DIR` 必须绝对路径 | `src/config.rs` | 保障 | 低 | cwd 变化会把锁或前端指到不同位置 | 相对路径拒绝；绝对路径接受 |
+| SEN-C-001 | 配置为 /etc/isarmg/xcos/config.json，服务用户拥有 0600 文件和 0700 父目录 | `src/config.rs`、配置样例 | 保障 | 中 | 错误所有权或权限暴露秘密 | 私有 JSON 读取负例 |
+| SEN-C-002 | 初始化是独立 init 命令，普通 run 不建库 | `src/cli.rs` | 保障 | 高 | 启动可能误建新状态 | missing-state run 拒绝 |
+| SEN-C-003 | 初始管理员密码仅由 init stdin 输入 | `src/cli.rs`、安装指南 | 保障 | 中 | 密码进入命令行或长期配置 | stdin 初始化测试 |
+| SEN-C-004 | 初始化和离线校验不依赖 runtime；systemd 创建 /run 私有目录 | `src/cli.rs`、`deploy/*.service` | 开发运维 | 中 | 首次启动或重启后初始化受阻 | runtime 不存在时 init/config validate |
+| SEN-C-005 | bind 默认 127.0.0.1:18106；development 默认 false，开发只允许 loopback；生产 Secure Cookie | `src/config.rs`、`src/auth.rs` | 保障 | 中 | 误用开发认证策略或暴露入口 | 默认值、loopback、Cookie 测试 |
+| SEN-C-006 | init生成两个独立32字节随机密钥写入私有secrets.json；配置不接受密钥值 | `src/config.rs` | 保障 | 中 | 弱密钥或歧义 key 长度会降低媒体授权和凭据保护 | 缺失、短值、非法 Base64、31/33 bytes 负例 |
+| SEN-C-007 | `XCOS_RUNTIME_DIR` 与开发 `XCOS_STATIC_DIR` 必须绝对路径 | `src/config.rs` | 保障 | 低 | cwd 变化会把锁或前端指到不同位置 | 相对路径拒绝；绝对路径接受 |
 | SEN-C-008 | 登录 body、bucket 容量、来源/账户窗口、Argon2 并发与超时采用 xcss 固定认证策略 | `xcss::admin_core::AdministratorPolicyV1` | 保障 | 中 | 私有策略或失效环境变量会让运维误判保护边界 | 共享策略与产品实际登录入口；超时后许可回收；无产品参数覆盖 |
 | SEN-C-009 | Media token TTL、状态刷新、reconcile 周期、上游请求超时均显式配置 | `src/config.rs` | 建议保留 | 中 | 删除可调性会把不同网络/规模强行绑定同一节奏 | 0/极端值行为；周期任务不重叠失控 |
 | SEN-C-010 | Server 不接收摄像机网络地址或设备凭据；发现、地址校验和适配器配置全部位于 Client | xcoc `device`/`onvif` 模块、Server 当前 Schema | 保障 | 中 | Server 重新接触摄像机内网会绕过授权实例边界 | Server direct API 为 405、Schema 拒绝未绑定摄像机 |
-| SEN-C-011 | 正式 `run --release-root` 只使用内嵌 Web，并验证 `share/web-assets.json` 与 binary 清单精确相等 | `src/main.rs` | 保障 | 中 | 可把已验证 Rust 与任意前端混搭 | 内嵌资源完整 HTTP 验收；目录覆盖/重写清单负例 |
-| SEN-C-012 | start 按 companion→readiness→应用顺序启动；任一步失败会清理本次启动的进程 | `deploy/xcosctl start`、`deploy/.start-action.sh` | 保障 | 高 | 失败可能遗留孤儿 MediaMTX 或错误 PID 文件 | companion 失败、应用失败、并发 start、回滚 |
-| SEN-C-013 | stop 先停应用，再停 MediaMTX，遵循数据库/协调器先释放的顺序 | `deploy/xcosctl stop`、`deploy/.stop-action.sh` | 保障 | 中 | 先停媒体面会扩大 operation 结果不确定窗口 | 正常停止、重复停止、PID 身份不匹配 |
+| SEN-C-011 | 生产 run 只使用内嵌 Web，显式 verify-release 比较完整资产清单 | `src/static_assets.rs`、`src/release.rs` | 保障 | 中 | 资源与构建身份漂移 | 全资产 HTTP 与显式校验测试 |
+| SEN-C-012 | systemd Requires/After 先启动 companion，应用 readiness 检查真实可用性 | `deploy/*.service` | 保障 | 高 | 媒体不可用时误报就绪 | companion 故障与 readiness |
+| SEN-C-013 | systemd PartOf 跟随主服务停止和重启 companion | `deploy/*.service` | 保障 | 中 | 遗留 companion 或重启不一致 | 目标主机 stop/restart 验收 |
 | SEN-C-014 | PID 文件和进程可执行路径共同校验，不只信任 PID 数字 | `deploy/common.sh` | 保障 | 中 | PID 重用可能误杀无关进程或误报运行状态 | 伪 PID、已退出 PID、不同 executable 负例 |
 
 ## 4. Administrator 认证与请求安全
@@ -108,7 +108,7 @@ xcss 提供管理员创建、凭据管理与停用能力。摄像头 RTSP/ONVIF 
 | SEN-K-004 | 永久授权码使用认证加密保存并绑定授权实例 ID；Server 可查看和更换，更换立即撤销旧 Token | `SecretBox`、`authorization_code_enc`、`update_client_authorization` | 保障 | 高 | 数据库泄漏可直接暴露配对权限，或旧客户端继续连接 | 错实例/错 key/篡改失败，更换后旧凭据失败 |
 | SEN-K-005 | 摄像机 RTSP/ONVIF 地址和设备账号只保留在 Client；Server Schema 不存在这些列 | `cameras`、Client LocalState | 保障 | 高 | Server 数据库会暴露摄像机内网和设备 Secret | Schema 列清单、管理 JSON 均无 URL/密码 |
 | SEN-K-006 | Client 快照最多一台摄像机，非空时摄像机 ID 等于授权实例 ID；空快照移除该实例原有摄像机 | `client_snapshot`、edge v1 | 保障 | 高 | 一个授权码可越权覆盖其他摄像机 | 0 台移除正例；2 台、错 ID、重复 ID 拒绝 |
-| SEN-K-007 | 启动与 doctor 认证全部持久授权码 envelope | `doctor::verify_credentials`、`SecretBox` | 保障 | 高 | 错 key 或坏密文直到配对管理时才暴露 | 任一授权码篡改使检查失败且不改库 |
+| SEN-K-007 | 启动与check 认证全部持久授权码 envelope | `doctor::verify_credentials`、`SecretBox` | 保障 | 高 | 错 key 或坏密文直到配对管理时才暴露 | 任一授权码篡改使检查失败且不改库 |
 | SEN-K-008 | 撤销实例会停用并隐藏摄像机、排队清理 MediaMTX；清理确认后可永久删除摄像机和授权实例 | `revoke_client`、media reconciliation | 保障 | 高 | 外键使已撤销实例永久无法删除，或媒体路径残留 | 未清理时冲突；撤销重试保留实例；成功清理后独立永久删除成功 |
 | SEN-K-009 | PTZ 只接受 move/stop，pan/tilt/zoom 各在 `[-1,1]`，并作为短时命令发送到拥有该摄像机的 Client | `PtzRequest`、`device_commands`、`routes::ptz` | 可选 | 中 | 删除后仍可监看但不能从控制台云台控制 | 边界值、离线、无能力、命令到期 |
 
@@ -138,7 +138,7 @@ xcss 提供管理员创建、凭据管理与停用能力。摄像头 RTSP/ONVIF 
 | ID | 当前功能/特性与真实行为 | 实现/代码锚点 | 分类 | 复杂度 | 删除后的确定后果 | 最低验证/边界 |
 |---|---|---|---|---|---|---|
 | SEN-M-001 | stream ticket 只为已启用摄像头的 main/sub profile 签发 | `/cameras/{id}/stream-ticket` | 核心 | 高 | 浏览器无法获得受限媒体入口；放宽则可读不存在/停用资源 | main/sub、无子流、disabled、未知 camera |
-| SEN-M-002 | 媒体 JWT 使用 HS256 key，经 HKDF 从 `APP_JWT_SECRET` 派生 | `issue_media_token`、`media_signing_key` | 保障 | 高 | 直接复用根 Secret 或弱 key 会扩大泄漏影响 | key 派生确定性、错 Secret、算法固定 |
+| SEN-M-002 | 媒体 JWT 使用 HS256 key，经 HKDF 从 secrets.json中的JWT根密钥 派生 | `issue_media_token`、`media_signing_key` | 保障 | 高 | 直接复用根 Secret 或弱 key 会扩大泄漏影响 | key 派生确定性、错 Secret、算法固定 |
 | SEN-M-003 | 浏览器读取与 Client 发布都使用短时 JWT；严格绑定 protocol、issuer、audience、kind、subject、camera、path、actions、jti、iat/nbf/exp，长期 Client API Token 不进入媒体 URL | `client_publish_url`、`MediaClaims`、`decode_media_token` | 保障 | 高 | Token 可跨产品、跨摄像头、跨用途重放，或媒体链路泄漏扩大到控制面 | 每字段篡改、未知字段、read/publish 隔离、时间窗、jti |
 | SEN-M-004 | MediaMTX HTTP auth callback 有 4 KiB/字段上限并核对 path 与 action | `/internal/v1/media/auth`、`MediaAuthRequest` | 保障 | 高 | callback 可被超大字段耗尽，或 Token 越权到其他 path | 超限、错 path/action、过期、额外字段 |
 | SEN-M-005 | WHEP 浏览器播放器生成 recvonly offer、等待 ICE、设置 answer 并 DELETE resource | `web/src/whep.ts` | 核心 | 高 | 失去低延迟直播或遗留服务端 WHEP Session | 成功连接、12 秒 timeout、close、unmount |
@@ -147,9 +147,9 @@ xcss 提供管理员创建、凭据管理与停用能力。摄像头 RTSP/ONVIF 
 | SEN-M-008 | 录像播放只允许 mp4/fmp4，单次 0.1 秒至 6 小时 | `play_recording` | 保障 | 中 | 无边界请求可放大上游和带宽资源消耗 | duration 边界、format、非法时间 |
 | SEN-M-009 | 播放代理只转发 Content-Type/Length/Range/Disposition 白名单响应头并流式正文 | `play_recording` | 保障 | 高 | 全量透传上游头可能改变安全策略；整段缓冲会耗内存 | 200/206、Range、上游错误、大正文 |
 | SEN-M-010 | MediaMTX 录制 fMP4、15 分钟 segment、默认保留 168 小时 | `config/mediamtx.yml` | 建议保留 | 中 | 删除 record 失去历史回放；改保留期直接改变容量需求 | config lock、record path、过期清理实测 |
-| SEN-M-011 | start 通过环境把录像根固定到 `/var/lib/isarmg/xcos/recordings` | `MTX_PATHDEFAULTS_RECORDPATH`、`deploy/.start-action.sh` | 保障 | 中 | inert 样例路径或 cwd 可能成为真实写入位置 | 进程环境、路径权限、release relocation |
-| SEN-M-012 | Caddy 将 `/media-webrtc/*`、`/media-hls/*` 与应用汇聚到一个浏览器 origin；三个上游默认使用本机 `127.0.0.1:8889/8888/8080`；路由系统上的 Caddy 可通过现有变量回源同一项目服务器的内网地址及对应端口 | `deploy/Caddyfile`、CI proxy gate | 保障 | 中 | 跨 origin 会复杂化 Cookie、CORS 和媒体授权；容器名在当前原生部署中无法解析 | 根级副本缺失；WHEP/HLS/API 同源；管理端口不公网暴露；拒绝 `app:`/`mediamtx:`；生产设置真实 `SITE_ADDRESS` |
-| SEN-M-013 | MediaMTX API、metrics、playback 固定 loopback；生产启动器强制受信证书的 RTSPS 8322，HLS 8888、WebRTC HTTP 8889 与 UDP 8189 绑定主机网卡。防火墙分别限制 Client 发布、Caddy 上游和浏览器 UDP | `src/config.rs`、`deploy/xcosctl`、内部 bootstrap/start 动作 | 保障 | 高 | 明文发布可能暴露媒体 Token；错把媒体 listener 当成 loopback 会令远程 Client 无法发布 | rtsps-only、证书/私钥检查、loopback 拒绝、listener 与 NAT 验收 |
+| SEN-M-011 | media-config 从 JSON 统一生成录像根与本机鉴权回调 | `src/doctor.rs`、`deploy/xcos-mediamtx.service` | 保障 | 中 | 应用和 companion 配置漂移 | 生成 YAML、真实 recordPath 与 callback |
+| SEN-M-012 | 外部 HTTPS 网关保持 Web/API/WHEP/HLS 同源；项目不附带网关软件配置 | `docs/configuration.md` | 保障 | 中 | 跨源破坏认证及媒体授权 | Host/Origin 与媒体路径转发 |
+| SEN-M-013 | RTSPS TLS、证书信任、ICE/NAT 与媒体端口仍是必要部署条件；管理端口 loopback | `config/mediamtx.env.example`、配置文档 | 保障 | 高 | 发布凭据暴露或媒体不可达 | TLS、RTSPS、WebRTC/HLS 真机验收 |
 
 ## 8. 事件、状态与审计
 
@@ -184,29 +184,29 @@ xcss 提供管理员创建、凭据管理与停用能力。摄像头 RTSP/ONVIF 
 | SEN-W-013 | `build` 强制先执行 `check:xcss`，再 strict typecheck 与 Vite build | `package.json`、`web/tests/design-xcss.test.mjs` | 开发运维 | 中 | 共享依赖或 CSS 漂移时仍可能生成表面可用 bundle | 故意改版本/import/scope 后 build 在 bundling 前失败 |
 | SEN-W-014 | 发行内嵌全部 Web；只附带 `share/web-assets.json`，不需要运行时 npm/CDN | Vite output、`scripts/build.sh`、release manifest | 保障 | 高 | 运行时网络依赖会破坏离线部署和制品身份 | 断网加载、资源引用、额外文件/篡改拒绝 |
 
-## 10. SQLite、锁、doctor、发行与供应链
+## 10. SQLite、锁、check、发行与供应链
 
 | ID | 当前功能/特性与真实行为 | 实现/代码锚点 | 分类 | 复杂度 | 删除后的确定后果 | 最低验证/边界 |
 |---|---|---|---|---|---|---|
 | SEN-R-001 | 主文件不存在时只创建当前 Schema；已有空文件或非当前库拒绝 | `sqlite::prepare_current_database` | 保障 | 高 | 自动补表会把未知状态变成不可审计混合状态 | 不存在、空文件、错 application/version/revision/SHA |
 | SEN-R-002 | xcss `xcss::schema_identity` 统一验证 `product_metadata` DDL/完整列形状、exact identity 与现场 `sqlite_schema` fingerprint；Xcos 使用 xcss 的 SQLx 当前 Schema adapter 和自身 lease 校验 | `validate_current_connection`、`product_metadata_rows`、`schema_rows` | 保障 | 高 | 手改 metadata 可伪装结构，DDL drift 被忽略，或多产品 fingerprint 算法分叉 | metadata 0/2 行、负 revision、错误 storage class/default/列、额外表/索引、只改 SHA、WAL 只读拒绝 |
 | SEN-R-003 | 验证前从 main/WAL/journal 复制私有 generation，并复核源文件身份未变 | `snapshot_generation` | 保障 | 高 | 验证可能读到跨时刻混合字节，或在源库上产生写入 | WAL、并发变化、symlink、generation cleanup |
-| SEN-R-004 | SQLite integrity、foreign key 和 rollback write probe 用于 doctor | `doctor.rs`、`sqlite.rs` | 开发运维 | 高 | 仅靠 `SELECT 1` 无法发现损坏、FK 或不可写 | corruption、FK、read-only、写探针回滚 |
+| SEN-R-004 | SQLite integrity、foreign key 和 rollback write probe 用于check | `doctor.rs`、`sqlite.rs` | 开发运维 | 高 | 仅靠 `SELECT 1` 无法发现损坏、FK 或不可写 | corruption、FK、read-only、写探针回滚 |
 | SEN-R-005 | global lease singleton 除 DDL 外还验证 owner UUIDv4、RFC3339 时间和字段组合 | `validate_global_lease_values` | 保障 | 高 | 非法业务不变量可通过 Schema SHA 后进入 worker | 多行、缺行、非规范 UUID/时间、expiry 顺序 |
-| SEN-R-006 | Application lock 绑定数据库身份、runtime 目录和 release 路径 | `src/runtime_lock.rs` | 保障 | 高 | 双实例可并发 claim、改库和控制 companion | 同库同/不同 runtime；symlink/hardlink；PID |
+| SEN-R-006 | Application lock 绑定数据库与 runtime 物理身份 | `src/runtime_lock.rs` | 保障 | 高 | 同库多实例竞争 | 同/不同 runtime、链接、目录重建 |
 | SEN-R-007 | maintenance lock 为外部停机工具保留排他协调边界 | `DatabaseMaintenanceLock` | 保障 | 高 | 备份/恢复工具可能与运行服务同时操作组合状态 | 服务共享持有、维护排他、锁顺序 |
-| SEN-R-008 | doctor 验证 release、数据库、凭据、recordings 根、MediaMTX binary/config/contract | `src/doctor.rs` | 开发运维 | 高 | 上线验收只能依靠零散命令，难以证明组合一致 | offline 正反例；每项单独篡改 |
-| SEN-R-009 | online doctor 额外探测应用与 MediaMTX loopback readiness | `DoctorOptions.offline`、`live_probe` | 开发运维 | 低 | 只能证明静态状态，不能证明两个进程正在响应 | offline 不依赖进程；online 一项失败即报告 |
+| SEN-R-008 | check检查数据库、凭据、录像和 MediaMTX 合同；全树审计用 verify-release | `src/doctor.rs`、`src/release.rs` | 开发运维 | 高 | 离线问题不易诊断 | offline 正反例 |
+| SEN-R-009 | 在线status 额外探测应用与 MediaMTX loopback readiness | `Command::Status`、公共readiness | 开发运维 | 低 | 只能证明静态状态，不能证明两个进程正在响应 | offline 不依赖进程；online 一项失败即报告 |
 | SEN-R-010 | release identity 绑定产品、版本、source revision、target、API、Schema、Web、credential 与 MediaMTX | `src/release.rs::ReleaseIdentity` | 保障 | 高 | 可把不同提交/协议/companion 拼成同名发行物 | identity JSON 与 manifest header 一致 |
-| SEN-R-011 | 全树 manifest 精确验证 path/type/mode/size/SHA，拒绝额外条目 | `verify_release`、xcss `xcss::web_assets` | 保障 | 高 | 攻击者或误部署可插入/替换资产而仍启动 | missing/extra/tamper/mode/symlink/hardlink |
-| SEN-R-012 | release root 必须是规范物理版本路径，正式父目录 root-owned | `validate_release_root`、`PRODUCTION_RELEASE_ROOT` | 保障 | 高 | 可通过 alias 或可写父目录替换已验证内容 | symlink parent、相对路径、错误 suffix、ownership |
+| SEN-R-011 | 显式 verify-release 精确校验 path/type/mode/size/SHA，拒绝额外条目 | `src/release.rs` | 保障 | 高 | 不能证明发布 payload 完整 | missing/extra/tamper/mode/link |
+| SEN-R-012 | 显式 verifier 使用规范物理目录；运行路径固定 bin，不要求版本树 | `src/release.rs`、systemd units | 开发运维 | 中 | 验证路径歧义或运行耦合打包布局 | 物理目录与无需发行树运行测试 |
 | SEN-R-013 | `scripts/build.sh` 要求 clean checkout、annotated `v1.0.3` 指向 HEAD 和 Linux AMD64 | `scripts/build.sh` | 开发运维 | 中 | 无法把制品稳定追溯到源码与版本 | dirty tree、lightweight/wrong tag、wrong host |
-| SEN-R-014 | build 在同一文件系统 stage，验证后 no-clobber 安装固定发行目录 | `scripts/build.sh` | 保障 | 高 | 半写 release 或同版本覆盖会让重启内容不可预测 | 中途失败、并发 build、第二次 build |
-| SEN-R-015 | lifecycle test 使用临时根覆盖 no-clobber、Secret、锁、失败回滚和链接防御 | `scripts/lifecycle-test.sh` | 开发运维 | 高 | 脚本安全语义容易在普通单元测试外回归 | 临时根运行；不得访问真实 `/var/lib` |
-| SEN-R-016 | relocated smoke 使用真实 Rust/Vite/SQLite/MediaMTX 制品验证重定位和篡改拒绝 | `scripts/relocated-smoke-test.sh` | 开发运维 | 高 | 静态脚本检查无法证明真实发行闭包 | 真实启动、hashed assets、字节篡改、source-bound binary |
-| SEN-R-017 | CI 同时门禁 Rust fmt/check/clippy/test、Web、native 生命周期与 Caddy 当前代理合同 | `.github/workflows/ci.yml` | 开发运维 | 高 | 任一语言或交付层可独立漂移进入 main；代理可能重新指向不存在的容器 | clean checkout 全 job；锁文件模式；根级 Caddyfile/容器上游负例；三个 loopback 上游精确一次 |
+| SEN-R-014 | build 同文件系统 stage，校验后 no-clobber 生成显式目标目录 | `scripts/build.sh` | 保障 | 高 | 半写 payload 或无提示覆盖 | 第二次 build、symlink 拒绝 |
+| SEN-R-015 | deployment fixture 验证 ctl 转发、units、打包与完整性 | `scripts/lifecycle-test.sh` | 开发运维 | 中 | 部署合同漂移 | 临时根，不操作真实服务 |
+| SEN-R-016 | relocated smoke 使用真实程序验证无发行树运行、离线 init 和内嵌资产 | `scripts/relocated-smoke-test.sh` | 开发运维 | 高 | 静态测试无法证明真实运行 | unbound/source-bound、runtime 缺失、全资产 HTTP |
+| SEN-R-017 | CI 门禁 Rust、Web、部署脚本与真实 companion 配置 | `.github/workflows/ci.yml` | 开发运维 | 高 | 交付层与代码漂移 | clean checkout 全 job |
 | SEN-R-018 | Rust 固定 1.99.0，Cargo.lock 与 npm package-lock 都纳入提交 | `rust-toolchain.toml`、lockfiles | 开发运维 | 中 | 依赖解析随时间变化，构建结果不可复现 | `--locked`、`npm ci`、工具链版本 |
-| SEN-R-019 | 源配置统一为 `config/`，主机部署资产为 `deploy/`，客户端为 `web/`，生命周期为 `deploy/`，构建、检查、打包入口为 `scripts/`；根目录不放散落部署文件 | 仓库目录结构、CI proxy gate | 开发运维 | 低 | 配置、客户端和部署资产散落，开发者难以判断事实源；双份代理模板会漂移 | 目录清单；根级 `Caddyfile` 不存在；脚本/文档不引用已移除位置 |
+| SEN-R-019 | config 保存样例/媒体合同，deploy 保存 units/ctl，scripts 保存构建检查入口 | 仓库目录结构 | 开发运维 | 低 | 事实来源混乱 | 完整包布局验收 |
 | SEN-R-020 | 当前Schema identity为application `xcos`、数据格式`xcos-db-v2`、revision2、SHA `4d20083821ff39d78792d0795b26206e851c2e6d0523109ee49cfc06666a1d4a`；`_common_administrators` 使用 username，不保存 email/role | `schema/generated/current_schema.sql`、`src/sqlite/`、`scripts/lifecycle-test.sh` | 保障 | 高 | 发行物、运行库和运维文档可能各自接受不同管理身份 DDL | code-owned fingerprint 重算、metadata/现场 schema、列清单、lifecycle identity 一致 |
 
 ## 11. 可观测性、容量和故障边界
@@ -226,15 +226,15 @@ xcss 提供管理员创建、凭据管理与停用能力。摄像头 RTSP/ONVIF 
 | ID | 当前决定 | 实现/边界锚点 | 分类 | 复杂度 | 若改变会发生什么 | 实施前最低证据 |
 |---|---|---|---|---|---|---|
 | SEN-X-001 | 不提供 observer/operator/viewer 或任何 RBAC 开关 | 无 role 列；所有业务 route 解析 `CurrentUser` | 核心 | 高 | 需重做权限矩阵、Session contract、Web 条件展示、审计与持久结构 | 独立授权设计、逐路由测试、Schema 与 xcss 决策 |
-| SEN-X-002 | 不提供内置 TLS 或应用层 HTTPS 强制；由 `deploy/Caddyfile` 所示同源网关终止 HTTPS，后端默认 loopback 并必须由防火墙隔离 | `deploy/Caddyfile`、`src/config.rs`、正式环境样例 | 保障 | 高 | 后端直连会让登录密码/Session 经过明文；内置 TLS 则需承担证书、续期和监听安全 | 生产 `SITE_ADDRESS`、真实证书、三个默认本机或显式配置的同项目服务器内网上游、后端不可公网直连；默认 `:80` 仅是模板占位 |
+| SEN-X-002 | 应用不提供 HTTP TLS，已有 HTTPS 网关终止 TLS；RTSPS TLS 独立保留 | 配置文档、companion 环境样例 | 保障 | 高 | 明文入口暴露凭据与媒体 | HTTPS 同源、受信 RTSPS、后端防火墙 |
 | SEN-X-003 | 不提供视频转码、AI、人脸识别或语义搜索 | 无相关 worker/model/schema | 核心 | 高 | 增加 GPU/CPU、模型供应链、生物特征隐私和派生物状态 | 独立 RFC、资源预算、隐私删除和失败恢复 |
 | SEN-X-004 | 不提供云多租户或组织隔离；一个部署是一套 Administrator 与摄像头 | 数据模型无 tenant | 核心 | 高 | 所有查询、JWT、录像路径和审计都要加入租户边界 | 威胁模型、逐查询隔离、计费/配额设计 |
 | SEN-X-005 | 不提供运行时 Schema migration、双读或非当前密文 keyring | `src/sqlite/`、`src/crypto.rs` | 保障 | 高 | 产品复杂度会随代数增长，并在启动期写未知数据 | 产品保留单一当前格式；非当前格式明确拒绝 |
 | SEN-X-006 | 不提供通用操作 Idempotency-Key；camera desired generation 是当前收敛语义 | Schema/queue 实现 | 保障 | 高 | 新 header 必须定义存储期限、payload digest、冲突和重放响应 | API/Schema/容量/清理/并发完整设计 |
 | SEN-X-007 | PTZ 持久化为有期限设备命令，HTTP 202 仅证明已排队；媒体 operation API 不提供设备命令终态查询 | `routes::ptz`、`device_commands`、Client snapshot | 可选 | 高 | 若提供设备副作用终态查询需定义专用查询与不确定结果模型 | 命令到期、Client 去重、回执、重复动作风险 |
 | SEN-X-008 | 提供媒体 operation 到本地业务审计的持久 outbox，不提供外部必达 sink | `_common_operation_audit_outbox`、`flush_operation_audit` | 可选 | 高 | 外部导出仍需独立投递、重试、死信、脱敏和容量模型，不能把本地确认当外部送达 | 本地投递/确认同事务；若新增外部 sink 须有独立合同与故障验收 |
-| SEN-X-009 | 不承诺应用核对每个录像文件的 Hash/inventory；doctor 目前检查安全目录和写探针 | `doctor::recording_write_probe` | 建议保留 | 高 | 若新增完整 inventory，doctor 时间、存储和备份合同都会扩大 | 百万文件预算、增量索引、特殊文件与并发写设计 |
-| SEN-X-010 | 发行树提供 xcosctl；仓库另提供需审阅的 systemd 部署示例 | `deploy/`、release layout | 开发运维 | 中 | systemd 直接跟踪应用和 companion，不能与 xcosctl 后台模式并用 | 发行/运维文档明确；lifecycle 测试 |
+| SEN-X-009 | 不承诺应用核对每个录像文件的 Hash/inventory；check目前检查安全目录和写探针 | `doctor::recording_write_probe` | 建议保留 | 高 | 若新增完整 inventory，check时间、存储和备份合同都会扩大 | 百万文件预算、增量索引、特殊文件与并发写设计 |
+| SEN-X-010 | 包内提供完整 systemd units 和 ctl 薄封装 | `deploy/`、release layout | 开发运维 | 中 | 部署步骤缺失或双重进程管理 | package fixture 与主机验收 |
 | SEN-X-011 | Server 只支持 Linux x86_64 GNU；管理界面为浏览器，边缘客户端平台由独立 Client 仓库定义 | compile/runtime gates、xcoc | 核心 | 高 | 扩平台不能只删除 compile gate，还需 companion、脚本、锁和发行等价证明 | 新平台完整 CI、真实媒体和部署安全验证 |
 
 ## 13. 关键取舍说明

@@ -7,7 +7,7 @@
 
 ## 7.2 Schema 身份
 
-`product_metadata`精确绑定application、数据格式xcos-db-v2、revision2和code-owned DDL SHA；软件版本1.0.3另由release identity记录。启动/doctor 从实际
+`product_metadata`精确绑定application、数据格式xcos-db-v2、revision2和code-owned DDL SHA；软件版本1.0.3另由release identity记录。启动/check 从实际
 `sqlite_schema` 重新规范计算，不信任 metadata 自报。当前 SHA 为
 `4d20083821ff39d78792d0795b26206e851c2e6d0523109ee49cfc06666a1d4a`；管理员表只有 canonical
 `username`，没有 email/role。空文件、非当前库和漂移库都只读拒绝。
@@ -33,7 +33,7 @@ Web 消费同一字段。摄像头 username、媒体 JWT/camera identity 不属�
 
 ## 7.5 外部密钥
 
-原始密钥来自受保护环境或凭据文件，不写入数据库、备份、日志或 JSON。启动和 `doctor`
+原始密钥来自服务 UID 私有 JSON 或 XCOS_ 环境覆盖，不写入数据库、日志或公开接口 JSON。受保护配置的备份需单独管理。启动和 `check`
 使用该密钥实际认证全部持久授权码密文；产品不存储独立的密钥 ID。
 
 ## 7.6 密钥轮换
@@ -47,8 +47,8 @@ expiry 晚于 updated；空闲态 owner/expiry 同空。非法状态不自动清
 
 ## 7.8 发行合同
 
-source-bound binary 验证精确 release root、manifest、文件 Hash/mode/type、Web fingerprint、API 与 Schema
-身份。拒绝 symlink、额外文件、硬链接 alias 和服务账户可写资产。
+显式 `verify-release PATH` 校验 manifest、文件 Hash/mode/type、Web fingerprint、API 与 Schema
+身份，拒绝 symlink、额外文件和硬链接。普通 run 不依赖发行树，全树检查用于构建与人工审计。
 
 ## 7.9 变更合同的步骤
 

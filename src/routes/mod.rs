@@ -57,6 +57,8 @@ mod request_contract_tests;
 
 const CAMERA_SELECT: &str = "SELECT id, name, location, source_kind, client_id, adapter_kind, manufacturer, model, firmware_version, serial_number, capabilities_json, streams_json, health_message, device_status, has_sub_stream, enabled, record_enabled, storage_mode, status, last_seen_at, last_observed_at, observation_expires_at, created_at, updated_at FROM cameras";
 pub fn router(state: AppState, runtime: xcss::server_runtime::RuntimeHandle) -> Result<Router> {
+    let trusted = xcss::client_ip::TrustedProxies::parse(&state.config.trusted_proxies)
+        .map_err(|error| AppError::Internal(error.to_string()))?;
     let platform = xcss::server_runtime::platform_router(
         runtime,
         "xcos",
@@ -127,7 +129,10 @@ pub fn router(state: AppState, runtime: xcss::server_runtime::RuntimeHandle) -> 
                         .get::<xcss::contracts::RequestId>()
                         .map(|value| value.as_str())
                         .unwrap_or("");
-                    tracing::info_span!("http.request", request_id)
+                    let client_ip = xcss::client_ip::from_extensions(request.extensions())
+                        .map(|ip| ip.to_string())
+                        .unwrap_or_default();
+                    tracing::info_span!("http.request", request_id, client_ip = %client_ip)
                 })
                 .on_request(())
                 .on_response(
@@ -144,6 +149,10 @@ pub fn router(state: AppState, runtime: xcss::server_runtime::RuntimeHandle) -> 
                 .on_eos(())
                 .on_failure(()),
         )
+        .layer(axum::middleware::from_fn_with_state(
+            trusted,
+            xcss::client_ip::middleware,
+        ))
         .layer(axum::middleware::from_fn_with_state(scope, admit_request))
         .layer(axum::middleware::from_fn_with_state(
             "xcos".to_string(),

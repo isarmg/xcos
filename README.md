@@ -16,19 +16,17 @@
 
 ## 如何快速部署
 
-从 [下载页](https://github.com/isarmg/xcos/releases) 取得同版 Linux 归档与 `SHA256SUMS`。以下用于全新安装，不能覆盖已有发行树；公开 v1.0.0 归档早于当前 `xcos-db-v2` 合同，应使用各自版本的部署配置。
+解压发行包，将 `config/xcos.json.example` 复制为自己的 JSON 配置，核对监听地址、数据目录和录像目录。
 
 ```sh
-sha256sum --check SHA256SUMS
-sudo tar -xzf xcos-1.0.3-x86_64-unknown-linux-gnu.tar.gz -C / --keep-old-files --no-overwrite-dir opt
-sudo /opt/isarmg/xcos/releases/1.0.3/deploy/xcosctl bootstrap
-sudoedit /etc/isarmg/xcos.env
-sudo /opt/isarmg/xcos/releases/1.0.3/deploy/xcosctl bootstrap --confirm-config
-sudo /opt/isarmg/xcos/releases/1.0.3/deploy/xcosctl start
-sudo /opt/isarmg/xcos/releases/1.0.3/deploy/xcosctl status
+systemd-ask-password 'Initial administrator password:' | sudo ./install.sh setup /absolute/config.json admin
+sudo systemctl enable --now xcos.service
+curl --fail http://127.0.0.1:18106/readyz
 ```
 
-确认配置前，填写管理员密码、独立密钥、公开 RTSPS 地址和证书路径，并配置 HTTPS 网关。`bootstrap --confirm-config` 显式初始化；普通启动不建库。Xcos、MediaMTX 和数据部署在同一台机器；网关可在另一台机器，通过显式配置的回源地址访问，MediaMTX 管理端口仍只供本机使用。远端网关配置见详细文档中的配置参考。
+安装器创建普通服务用户、初始化管理员和内部密钥，并安装 Xcos 与 MediaMTX 的 systemd 服务。
+启动前配置 MediaMTX 的 RTSPS 证书及客户端可达的 ICE 地址；Web HTTPS 由现有反向代理提供。
+后续升级在新发行包中执行 `sudo ./install.sh upgrade`。
 
 ## 如何编译部署
 

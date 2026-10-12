@@ -9,7 +9,7 @@ srt: no
 moq: no
 
 authMethod: http
-authHTTPAddress: http://127.0.0.1:8080/internal/v1/media/auth
+authHTTPAddress: http://127.0.0.1:18107/internal/v1/media/auth
 authHTTPExclude:
   - action: api
   - action: metrics
@@ -42,8 +42,7 @@ pathDefaults:
   sourceOnDemandStartTimeout: 15s
   sourceOnDemandCloseAfter: 15s
   recordFormat: fmp4
-  # xcosctl start supplies the absolute state path through
-  # MTX_PATHDEFAULTS_RECORDPATH; this inert default never points at a checkout.
+  # xcos media-config supplies the configured recording path.
   recordPath: /var/lib/isarmg/xcos/recordings/%path/%Y-%m-%d_%H-%M-%S-%f
   recordPartDuration: 1s
   recordMaxPartSize: 100M

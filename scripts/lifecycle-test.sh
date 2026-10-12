@@ -4,498 +4,158 @@ set -euo pipefail
 REPOSITORY_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 # shellcheck source=/dev/null
 source "$REPOSITORY_ROOT/deploy/common.sh"
-
 TEST_ROOT="$(mktemp -d)"
-SOURCE_FIXTURE="$TEST_ROOT/source"
-INSTALL_ROOT="$TEST_ROOT/opt/isarmg/xcos"
-CONFIG_ROOT="$TEST_ROOT/etc/isarmg"
-STATE_ROOT="$TEST_ROOT/var/lib/isarmg/xcos"
-RUNTIME_ROOT="$TEST_ROOT/run/isarmg/xcos"
-BUILD_ROOT="$TEST_ROOT/build"
-FAKE_BIN="$TEST_ROOT/test-bin"
-OPERATION_LOCK_PID=""
-ZOMBIE_PARENT_PID=""
-
 cleanup() {
-  if [[ -n "$OPERATION_LOCK_PID" ]]; then
-    kill "$OPERATION_LOCK_PID" 2>/dev/null || true
-    wait "$OPERATION_LOCK_PID" 2>/dev/null || true
-  fi
-  if [[ -n "$ZOMBIE_PARENT_PID" ]]; then
-    kill "$ZOMBIE_PARENT_PID" 2>/dev/null || true
-    wait "$ZOMBIE_PARENT_PID" 2>/dev/null || true
-  fi
-  for pid_file in "$RUNTIME_ROOT/app.pid" "$RUNTIME_ROOT/mediamtx.pid"; do
-    if [[ -f "$pid_file" ]]; then
-      pid="$(<"$pid_file")"
-      if [[ "$pid" =~ ^[1-9][0-9]*$ ]]; then
-        kill "$pid" 2>/dev/null || true
-      fi
-    fi
-  done
   chmod -R u+w -- "$TEST_ROOT" 2>/dev/null || true
   rm -rf -- "$TEST_ROOT"
 }
 trap cleanup EXIT
+fail() { echo "deployment test failed: $*" >&2; exit 1; }
 
-fail() {
-  echo "lifecycle test failed: $*" >&2
-  exit 1
-}
+# The control command only delegates to systemd, preserving its exit status.
+mkdir -p "$TEST_ROOT/bin"
+cat >"$TEST_ROOT/bin/systemctl" <<'CONTROL'
+#!/usr/bin/env bash
+printf '%s\n' "$@" >"${XCOS_TEST_COMMAND:?}"
+exit "${XCOS_TEST_EXIT:-0}"
+CONTROL
+chmod 0755 "$TEST_ROOT/bin/systemctl"
+export XCOS_TEST_COMMAND="$TEST_ROOT/systemctl-arguments"
+for action in start stop restart status enable disable; do
+  PATH="$TEST_ROOT/bin:$PATH" "$REPOSITORY_ROOT/deploy/xcosctl" "$action"
+  printf '%s\n' "$action" xcos.service >"$TEST_ROOT/expected"
+  cmp "$TEST_ROOT/expected" "$XCOS_TEST_COMMAND" || fail "systemctl arguments changed"
+done
+if PATH="$TEST_ROOT/bin:$PATH" XCOS_TEST_EXIT=7 "$REPOSITORY_ROOT/deploy/xcosctl" status; then
+  fail "systemctl failure was hidden"
+else
+  [[ "$?" == 7 ]] || fail "systemctl status code was changed"
+fi
+rm "$XCOS_TEST_COMMAND"
+for invalid in bootstrap run --user; do
+  if PATH="$TEST_ROOT/bin:$PATH" "$REPOSITORY_ROOT/deploy/xcosctl" "$invalid" >/dev/null 2>&1; then
+    fail "unsupported control action accepted"
+  fi
+done
+if PATH="$TEST_ROOT/bin:$PATH" "$REPOSITORY_ROOT/deploy/xcosctl" start arbitrary.service >/dev/null 2>&1; then
+  fail "arbitrary systemctl arguments accepted"
+fi
+[[ ! -e "$XCOS_TEST_COMMAND" ]] || fail "invalid control request reached systemctl"
 
-# A defunct process still answers kill -0, but cannot own a live service PID.
-require_command python3
-python3 - "$TEST_ROOT/zombie-child.pid" <<'PY' &
-import os
-import signal
+python3 - "$REPOSITORY_ROOT" <<'UNITS'
+import configparser
+from pathlib import Path
 import sys
-import time
+root = Path(sys.argv[1])
+for name in ["xcos", "xcos-mediamtx"]:
+    unit = configparser.ConfigParser(interpolation=None, strict=False)
+    unit.read(root / "deploy" / f"{name}.service")
+    service = unit["Service"]
+    assert service["User"] == service["Group"] == "isarmg-xcos"
+    assert service["Type"] == "simple"
+    assert service["RuntimeDirectory"] == "isarmg/xcos"
+    assert "StateDirectory" not in service
+    assert "PrivateTmp" not in service
+    assert service["ProtectHome"] == "read-only"
+    assert service["RuntimeDirectoryMode"] == "0700"
+    assert service["RuntimeDirectoryPreserve"] == ("yes" if name == "xcos" else "restart")
+    assert service["TimeoutStopSec"] == "120s"
+    assert service["UMask"] == "0077"
+    assert service["NoNewPrivileges"] == "true"
+    assert service["KillMode"] == "control-group"
+    text = (root / "deploy" / f"{name}.service").read_text()
+    assert "/current" not in text and "--release-root" not in text
+    assert "verify-release" not in text and "nohup" not in text
+    if name == "xcos":
+        assert unit["Unit"]["Requires"] == "xcos-mediamtx.service"
+        assert "xcos-mediamtx.service" in unit["Unit"]["After"]
+        assert service["ExecStart"] == "/opt/isarmg/xcos/bin/xcos --config /etc/isarmg/xcos/config.json run"
+        assert service["ExecStartPre"].endswith(" check")
+    else:
+        assert unit["Unit"]["PartOf"] == "xcos.service"
+        assert " media-config > /run/isarmg/xcos/mediamtx.yml" in text
+        assert service["ExecStart"] == "/opt/isarmg/xcos/bin/mediamtx /run/isarmg/xcos/mediamtx.yml"
+print("systemd owner, runtime/state directories, foreground commands and companion dependency checked")
+UNITS
 
-child = os.fork()
-if child == 0:
-    os._exit(0)
-with open(sys.argv[1], 'w', encoding='ascii') as handle:
-    handle.write(str(child))
-def finish(_signum, _frame):
-    os.waitpid(child, 0)
-    sys.exit(0)
-signal.signal(signal.SIGTERM, finish)
-time.sleep(30)
-PY
-ZOMBIE_PARENT_PID="$!"
-for _ in {1..50}; do
-  if [[ -s "$TEST_ROOT/zombie-child.pid" ]]; then
-    ZOMBIE_CHILD_PID="$(<"$TEST_ROOT/zombie-child.pid")"
-    if [[ -r "/proc/$ZOMBIE_CHILD_PID/status" ]] &&
-      grep -q '^State:[[:space:]]*Z' "/proc/$ZOMBIE_CHILD_PID/status"; then
-      break
-    fi
-  fi
-  sleep 0.02
-done
-if [[ -z "${ZOMBIE_CHILD_PID:-}" || ! -r "/proc/${ZOMBIE_CHILD_PID:-}/status" ]] ||
-  ! grep -q '^State:[[:space:]]*Z' "/proc/${ZOMBIE_CHILD_PID:-}/status"; then
-  fail "could not create the zombie PID fixture"
-fi
-printf '%s\n' "$ZOMBIE_CHILD_PID" >"$TEST_ROOT/zombie.pid"
-chmod 0600 -- "$TEST_ROOT/zombie.pid"
-if process_is_live "$ZOMBIE_CHILD_PID"; then
-  fail "a zombie process passed the live-process check"
-fi
-if read_running_pid "$TEST_ROOT/zombie.pid"; then
-  fail "a zombie process was treated as a running service"
-fi
-kill "$ZOMBIE_PARENT_PID"
-wait "$ZOMBIE_PARENT_PID" 2>/dev/null || true
-ZOMBIE_PARENT_PID=""
+# Render the actual installer unit transformation without touching systemd or users.
+python3 - "$REPOSITORY_ROOT" "$TEST_ROOT" <<'RENDER'
+import json, pathlib, subprocess, sys
+root, scratch = map(pathlib.Path, sys.argv[1:])
+source = (root / "install.sh").read_text().split("<<'PYUNIT'\n", 1)[1].split("\nPYUNIT", 1)[0]
+settings = scratch / "custom.json"
+settings.write_text(json.dumps({"data_dir": "/home/service/state %x", "recordings_directory": '/tmp/media "disk"'}))
+for unit in ["xcos", "xcos-mediamtx"]:
+    output = scratch / (unit + ".service")
+    subprocess.run([sys.executable, "-c", source, str(settings), str(root / "deploy" / (unit + ".service")), str(output)], check=True)
+    rendered = output.read_text()
+    assert '"/home/service/state %%x"' in rendered
+    assert '\\"disk\\"' in rendered
+    assert '"/run/isarmg/xcos"' in rendered
+print("custom state/recordings systemd quoting checked")
+RENDER
 
-mkdir -p -- "$SOURCE_FIXTURE/deploy" "$SOURCE_FIXTURE/scripts" "$SOURCE_FIXTURE/config" "$FAKE_BIN"
-install -m 0755 -- \
-  "$REPOSITORY_ROOT/deploy/common.sh" \
-  "$REPOSITORY_ROOT/deploy/xcosctl" \
-  "$SOURCE_FIXTURE/deploy/"
-install -m 0755 -- "$REPOSITORY_ROOT/scripts/build.sh" "$SOURCE_FIXTURE/scripts/build.sh"
-install -m 0644 -- \
-  "$REPOSITORY_ROOT/deploy/.bootstrap-action.sh" \
-  "$REPOSITORY_ROOT/deploy/.start-action.sh" \
-  "$REPOSITORY_ROOT/deploy/.status-action.sh" \
-  "$REPOSITORY_ROOT/deploy/.stop-action.sh" \
-  "$SOURCE_FIXTURE/deploy/"
-install -m 0644 -- "$REPOSITORY_ROOT/config/mediamtx.yml" "$SOURCE_FIXTURE/config/mediamtx.yml"
-printf '%s\n' \
-  '[package]' \
-  'name = "xcos"' \
-  'version = "1.0.3"' \
-  >"$SOURCE_FIXTURE/Cargo.toml"
-FAKE_MEDIA="$TEST_ROOT/fake-mediamtx"
-cat >"$FAKE_MEDIA" <<'EOF'
+# Exercise package layout/integrity without compiling Rust or starting services.
+SOURCE_FIXTURE="$TEST_ROOT/source"
+INSTALL_ROOT="$TEST_ROOT/output/xcos"
+mkdir -p "$SOURCE_FIXTURE/deploy" "$SOURCE_FIXTURE/scripts" "$SOURCE_FIXTURE/config" "$TEST_ROOT/output"
+cp "$REPOSITORY_ROOT/install.sh" "$REPOSITORY_ROOT/README.md" "$SOURCE_FIXTURE/"
+cp "$REPOSITORY_ROOT/Cargo.toml" "$SOURCE_FIXTURE/Cargo.toml"
+cp "$REPOSITORY_ROOT/deploy/common.sh" "$REPOSITORY_ROOT/deploy/xcosctl" \
+  "$REPOSITORY_ROOT/deploy/xcos.service" "$REPOSITORY_ROOT/deploy/xcos-mediamtx.service" "$SOURCE_FIXTURE/deploy/"
+cp "$REPOSITORY_ROOT/scripts/build.sh" "$SOURCE_FIXTURE/scripts/"
+cp "$REPOSITORY_ROOT/config/mediamtx.yml" "$REPOSITORY_ROOT/config/xcos.json.example" \
+  "$REPOSITORY_ROOT/config/mediamtx.env.example" "$SOURCE_FIXTURE/config/"
+cat >"$TEST_ROOT/fake-mediamtx" <<'MEDIA'
+#!/usr/bin/env bash
+[[ "$#" == 1 && "$1" == --version ]] || exit 1
+printf '%s\n' v1.20.0
+MEDIA
+chmod 0755 "$TEST_ROOT/fake-mediamtx"
+FAKE_MEDIA_SHA="$(sha256sum "$TEST_ROOT/fake-mediamtx" | awk '{print $1}')"
+printf '%s\n' version=v1.20.0 platform=linux_amd64 "sha256=$FAKE_MEDIA_SHA" >"$SOURCE_FIXTURE/config/mediamtx.lock"
+export XCOS_TEST_SOURCE=0123456789abcdef0123456789abcdef01234567
+export XCOS_TEST_STATIC="$(printf '%s' '{"format":"deployment-fixture"}' | sha256sum | awk '{print $1}')"
+cat >"$TEST_ROOT/fake-xcos" <<'APP'
 #!/usr/bin/env bash
 set -euo pipefail
-if [[ "${1:-}" == "--version" ]]; then
-  echo 'v1.20.0'
-  exit 0
-fi
-if [[ -n "${FAKE_MEDIA_PID_AUDIT:-}" ]]; then
-  printf '%s\n' "$$" >"$FAKE_MEDIA_PID_AUDIT"
-fi
-trap 'exit 0' TERM INT
-while :; do sleep 1; done
-EOF
-chmod 0755 -- "$FAKE_MEDIA"
-FAKE_MEDIA_SHA="$(sha256sum -- "$FAKE_MEDIA" | awk '{print $1}')"
-FAKE_SOURCE_REVISION="0123456789abcdef0123456789abcdef01234567"
-FAKE_CONFIG_SHA="$(sha256sum -- "$SOURCE_FIXTURE/config/mediamtx.yml" | awk '{print $1}')"
-FAKE_RELEASE_CONTRACT="bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-printf '%s\n' \
-  '# Xcos lifecycle fixture companion contract.' \
-  'version=v1.20.0' \
-  'platform=linux_amd64' \
-  "sha256=$FAKE_MEDIA_SHA" \
-  >"$SOURCE_FIXTURE/config/mediamtx.lock"
-
-FAKE_APP="$TEST_ROOT/fake-xcos"
-cat >"$FAKE_APP" <<'EOF'
-#!/usr/bin/env bash
-set -euo pipefail
-case "${1:-missing-command}" in
-  --version)
-    echo "xcos 1.0.3 target=x86_64-unknown-linux-gnu source=${FAKE_SOURCE_REVISION:?}"
-    ;;
-  web-assets)
-    printf '%s' "${FAKE_WEB_MANIFEST:?}"
-    ;;
-  static-contract)
-    printf '%s\n' "${FAKE_STATIC_CONTRACT:?}"
-    ;;
-  release-manifest-header)
-    cat <<HEADER
-format=xcos-release-v1
-application=xcos
-application_version=1.0.3
-source_revision=${FAKE_SOURCE_REVISION:?}
-target=x86_64-unknown-linux-gnu
-wire_protocol=xcos-wire-v2
-api_prefix=/api/v1
-schema_revision=2
-schema_sha256=4d20083821ff39d78792d0795b26206e851c2e6d0523109ee49cfc06666a1d4a
-credential_envelope_revision=1
-credential_contract_sha256=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-static_contract_sha256=${FAKE_STATIC_CONTRACT:?}
-mediamtx_version=v1.20.0
-mediamtx_platform=linux_amd64
-mediamtx_sha256=${FAKE_MEDIA_SHA:?}
-mediamtx_config_sha256=${FAKE_CONFIG_SHA:?}
-release_contract_sha256=${FAKE_RELEASE_CONTRACT:?}
-HEADER
-    ;;
-  verify-release)
-    root="${2:?}"
-    [[ "$(readlink -f -- "$0")" == "$(readlink -f -- "$root/bin/xcos")" ]]
-    ;;
-  init)
-    [[ "${2:-}" == "--username" && "${3:-}" == "admin" ]]
-    IFS= read -r password
-    [[ "$password" == "operator-reviewed-password-1.0.0" ]]
-    [[ ! -e "${DATABASE_URL#sqlite://}" ]]
-    printf '%s' current-initialized-state >"${DATABASE_URL#sqlite://}"
-    mkdir -m 0700 -- "$(dirname "${DATABASE_URL#sqlite://}")/logs"
-    ;;
-  config)
-    [[ "${2:-}" == "validate" && -f "${DATABASE_URL#sqlite://}" ]]
-    ;;
-  status)
-    [[ -s "${XCOS_RUNTIME_DIR:?}/app.pid" ]] || exit 1
-    printf '%s\n' '{"ready":true,"state":"ready"}'
-    ;;
-  run)
-    [[ "${2:-}" == "--release-root" ]]
-    root="${3:?}"
-    [[ "$(readlink -f -- "$0")" == "$(readlink -f -- "$root/bin/xcos")" ]]
-    [[ -f "${DATABASE_URL#sqlite://}" && -z "${BOOTSTRAP_ADMIN_PASSWORD:-}" ]]
-    umask 077
-    printf '%s\n' "$$" >"${XCOS_RUNTIME_DIR:?}/app.pid"
-    cleanup() { rm -f -- "$XCOS_RUNTIME_DIR/app.pid"; }
-    trap cleanup EXIT
-    trap 'exit 0' TERM INT
-    while :; do sleep 1; done
-    ;;
-  *)
-    exit 2
-    ;;
+case "${1:-}" in
+  --version) printf 'xcos 1.0.3 target=x86_64-unknown-linux-gnu source=%s\n' "$XCOS_TEST_SOURCE" ;;
+  web-assets) printf '%s' '{"format":"deployment-fixture"}' ;;
+  static-contract) printf '%s\n' "$XCOS_TEST_STATIC" ;;
+  release-manifest-header) printf 'format=xcos-release-v1\nsource_revision=%s\n' "$XCOS_TEST_SOURCE" ;;
+  verify-release) [[ "$(readlink -f "$0")" == "$(readlink -f "${2:?}/bin/xcos")" ]] ;;
+  *) exit 2 ;;
 esac
-EOF
-chmod 0755 -- "$FAKE_APP"
-
-cat >"$FAKE_BIN/curl" <<'EOF'
-#!/usr/bin/env bash
-if [[ "${XCOS_TEST_CURL_FAILURE:-}" == "1" ]]; then
-  exit 22
-fi
-if [[ "${*: -1}" == */readyz ]]; then
-  printf '%s' '{"ready":true}:200'
-fi
-exit 0
-EOF
-chmod 0755 -- "$FAKE_BIN/curl"
-
-refresh_static_contract() {
-  # Serialized fixture bytes are passed as data, never executed.
-  # shellcheck disable=SC2089
-  FAKE_WEB_MANIFEST='{"format":"lifecycle-fixture"}'
-  FAKE_STATIC_CONTRACT="$(printf '%s' "$FAKE_WEB_MANIFEST" | sha256sum | awk '{print $1}')"
-  # shellcheck disable=SC2090
-  export FAKE_WEB_MANIFEST FAKE_STATIC_CONTRACT
-}
-
+APP
+chmod 0755 "$TEST_ROOT/fake-xcos"
 run_build() {
-  env \
-    PATH="$FAKE_BIN:$PATH" \
-    XCOS_NATIVE_INSTALL_ROOT="$INSTALL_ROOT" \
-    XCOS_NATIVE_TEST_ROOT="$TEST_ROOT" \
-    XCOS_BUILD_TARGET="$BUILD_ROOT" \
-    XCOS_MEDIAMTX_SOURCE="$FAKE_MEDIA" \
-    XCOS_APP_BINARY_SOURCE="$FAKE_APP" \
-    XCOS_SOURCE_REVISION="$FAKE_SOURCE_REVISION" \
-    FAKE_WEB_MANIFEST="$FAKE_WEB_MANIFEST" \
-    FAKE_STATIC_CONTRACT="$FAKE_STATIC_CONTRACT" \
-    FAKE_SOURCE_REVISION="$FAKE_SOURCE_REVISION" \
-    FAKE_MEDIA_SHA="$FAKE_MEDIA_SHA" \
-    FAKE_CONFIG_SHA="$FAKE_CONFIG_SHA" \
-    FAKE_RELEASE_CONTRACT="$FAKE_RELEASE_CONTRACT" \
-    "$SOURCE_FIXTURE/scripts/build.sh"
+  XCOS_INSTALL_ROOT="$INSTALL_ROOT" XCOS_BUILD_TARGET="$TEST_ROOT/build" \
+    XCOS_MEDIAMTX_SOURCE="$TEST_ROOT/fake-mediamtx" XCOS_APP_BINARY_SOURCE="$TEST_ROOT/fake-xcos" \
+    XCOS_BUILD_TEST_ROOT="$TEST_ROOT" XCOS_SOURCE_REVISION="$XCOS_TEST_SOURCE" \
+    bash "$SOURCE_FIXTURE/scripts/build.sh"
 }
-
-run_operation() {
-  env \
-    PATH="$FAKE_BIN:$PATH" \
-    XCOS_NATIVE_INSTALL_ROOT="$INSTALL_ROOT" \
-    XCOS_NATIVE_CONFIG_DIR="$CONFIG_ROOT" \
-    XCOS_NATIVE_STATE_DIR="$STATE_ROOT" \
-    XCOS_NATIVE_RUNTIME_DIR="$RUNTIME_ROOT" \
-    FAKE_WEB_MANIFEST="$FAKE_WEB_MANIFEST" \
-    FAKE_STATIC_CONTRACT="$FAKE_STATIC_CONTRACT" \
-    FAKE_SOURCE_REVISION="$FAKE_SOURCE_REVISION" \
-    FAKE_MEDIA_SHA="$FAKE_MEDIA_SHA" \
-    FAKE_CONFIG_SHA="$FAKE_CONFIG_SHA" \
-    FAKE_RELEASE_CONTRACT="$FAKE_RELEASE_CONTRACT" \
-    "$@"
-}
-
-refresh_static_contract
-run_build >/dev/null
-[[ -d "$INSTALL_ROOT/releases/1.0.3" && ! -L "$INSTALL_ROOT/releases/1.0.3" ]] ||
-  fail "physical release directory is missing"
-[[ ! -e "$INSTALL_ROOT/current" && ! -L "$INSTALL_ROOT/current" ]] ||
-  fail "publisher created a mutable current alias"
-[[ -x "$INSTALL_ROOT/releases/1.0.3/deploy/xcosctl" ]] || fail "release lifecycle command is missing"
-[[ ! -x "$INSTALL_ROOT/releases/1.0.3/deploy/.start-action.sh" ]] ||
-  fail "internal lifecycle modules must not be executable"
-[[ "$(find "$INSTALL_ROOT/releases" -maxdepth 1 -name ".${XCOS_VERSION}.stage.*" -print -quit)" == "" ]] ||
-  fail "physical release publication left a staging directory"
-[[ -z "$(find -P "$INSTALL_ROOT/releases/1.0.3" -perm /222 -print -quit)" ]] ||
-  fail "published release contains writable entries"
-
-# Neither a mutable alias nor an ordinary source-bound run command is a
-# valid way to enter the current product.
-ln -s -- releases/1.0.3 "$INSTALL_ROOT/current"
-if run_operation "$INSTALL_ROOT/current/deploy/xcosctl" status >"$TEST_ROOT/alias-status.out" 2>&1; then
-  fail "an operational script accepted a mutable release alias"
-fi
-rm -- "$INSTALL_ROOT/current"
-if run_operation "$INSTALL_ROOT/releases/1.0.3/bin/xcos" run \
-  >"$TEST_ROOT/ordinary-run.out" 2>&1; then
-  fail "a source-bound Xcos binary accepted run without its physical release root"
-fi
-
-# A physical version is a one-shot destination even when all supplied bytes
-# are identical. Rejection must not change the installed tree.
-FIRST_MANIFEST="$(sha256sum "$INSTALL_ROOT/releases/1.0.3/RELEASE-MANIFEST" | awk '{print $1}')"
-FIRST_LAYOUT="$(find -P "$INSTALL_ROOT" -printf '%P %y %m %s\n' | LC_ALL=C sort | sha256sum | awk '{print $1}')"
-if run_build >"$TEST_ROOT/second-build.out" 2>&1; then
-  fail "publisher accepted a second Xcos 1.0.3 publication"
-fi
-grep -q 'one-shot' "$TEST_ROOT/second-build.out" ||
-  fail "second publication did not identify the one-shot boundary"
-[[ "$(sha256sum "$INSTALL_ROOT/releases/1.0.3/RELEASE-MANIFEST" | awk '{print $1}')" == "$FIRST_MANIFEST" ]] ||
-  fail "rejected second publication changed the release manifest"
-[[ "$(find -P "$INSTALL_ROOT" -printf '%P %y %m %s\n' | LC_ALL=C sort | sha256sum | awk '{print $1}')" == "$FIRST_LAYOUT" ]] ||
-  fail "rejected second publication changed the installed layout"
-
-# Any pre-existing physical version is refused before invoking a build or
-# changing its bytes. The publisher only creates an empty first destination.
-OTHER_INSTALL="$TEST_ROOT/existing/opt/isarmg/xcos"
-mkdir -p -- "$OTHER_INSTALL/releases/0.1.0"
-printf '%s' retained-physical-release >"$OTHER_INSTALL/releases/0.1.0/xcos"
-OTHER_LAYOUT="$(find -P "$OTHER_INSTALL" -printf '%P %y %m %s\n' | LC_ALL=C sort | sha256sum | awk '{print $1}')"
-if env \
-  PATH="$FAKE_BIN:$PATH" \
-  XCOS_NATIVE_INSTALL_ROOT="$OTHER_INSTALL" \
-  XCOS_NATIVE_TEST_ROOT="$TEST_ROOT" \
-  XCOS_BUILD_TARGET="$TEST_ROOT/other-build" \
-  XCOS_MEDIAMTX_SOURCE="$FAKE_MEDIA" \
-  XCOS_APP_BINARY_SOURCE="$FAKE_APP" \
-  XCOS_SOURCE_REVISION="$FAKE_SOURCE_REVISION" \
-  "$SOURCE_FIXTURE/scripts/build.sh" >"$TEST_ROOT/other-version-build.out" 2>&1; then
-  fail "publisher accepted a destination containing a different version"
-fi
-[[ "$(cat "$OTHER_INSTALL/releases/0.1.0/xcos")" == retained-physical-release ]] ||
-  fail "rejected publication changed existing physical bytes"
-[[ "$(find -P "$OTHER_INSTALL" -printf '%P %y %m %s\n' | LC_ALL=C sort | sha256sum | awk '{print $1}')" == "$OTHER_LAYOUT" ]] ||
-  fail "rejected publication changed the existing destination layout"
-[[ ! -e "$TEST_ROOT/other-build" && ! -e "$OTHER_INSTALL/current" && ! -L "$OTHER_INSTALL/current" ]] ||
-  fail "rejected publication created build output or a mutable alias"
-
-# A symlinked deployment parent is rejected before publication.
-EVIL_INSTALL="$TEST_ROOT/evil/opt/isarmg/xcos"
-mkdir -p -- "$EVIL_INSTALL" "$TEST_ROOT/evil-target"
-ln -s -- "$TEST_ROOT/evil-target" "$EVIL_INSTALL/releases"
-if env \
-  PATH="$FAKE_BIN:$PATH" \
-  XCOS_NATIVE_INSTALL_ROOT="$EVIL_INSTALL" \
-  XCOS_NATIVE_TEST_ROOT="$TEST_ROOT" \
-  XCOS_BUILD_TARGET="$TEST_ROOT/evil-build" \
-  XCOS_MEDIAMTX_SOURCE="$FAKE_MEDIA" \
-  XCOS_APP_BINARY_SOURCE="$FAKE_APP" \
-  XCOS_WEB_SOURCE="$SOURCE_FIXTURE/web-dist" \
-  FAKE_STATIC_CONTRACT="$FAKE_STATIC_CONTRACT" \
-  "$SOURCE_FIXTURE/scripts/build.sh" >"$TEST_ROOT/symlink-build.out" 2>&1; then
-  fail "build accepted a symlinked releases directory"
-fi
-
-# A configuration path with an intermediate symlink is rejected.
-mkdir -p -- "$TEST_ROOT/bad-config-real"
-ln -s -- "$TEST_ROOT/bad-config-real" "$TEST_ROOT/bad-config-link"
-if env \
-  PATH="$FAKE_BIN:$PATH" \
-  XCOS_NATIVE_INSTALL_ROOT="$INSTALL_ROOT" \
-  XCOS_NATIVE_CONFIG_DIR="$TEST_ROOT/bad-config-link" \
-  XCOS_NATIVE_STATE_DIR="$STATE_ROOT" \
-  XCOS_NATIVE_RUNTIME_DIR="$RUNTIME_ROOT" \
-  "$INSTALL_ROOT/releases/1.0.3/deploy/xcosctl" bootstrap >"$TEST_ROOT/symlink-config.out" 2>&1; then
-  fail "bootstrap accepted a symlinked configuration path"
-fi
-
-# A final configuration file symlink is never treated as an existing config.
-BAD_FINAL_CONFIG="$TEST_ROOT/bad-final-config"
-mkdir -p -- "$BAD_FINAL_CONFIG"
-chmod 0755 -- "$BAD_FINAL_CONFIG"
-printf '%s\n' 'must-not-be-read' >"$TEST_ROOT/symlink-env-target"
-ln -s -- "$TEST_ROOT/symlink-env-target" "$BAD_FINAL_CONFIG/xcos.env"
-if env \
-  PATH="$FAKE_BIN:$PATH" \
-  XCOS_NATIVE_INSTALL_ROOT="$INSTALL_ROOT" \
-  XCOS_NATIVE_CONFIG_DIR="$BAD_FINAL_CONFIG" \
-  XCOS_NATIVE_STATE_DIR="$STATE_ROOT" \
-  XCOS_NATIVE_RUNTIME_DIR="$RUNTIME_ROOT" \
-  "$INSTALL_ROOT/releases/1.0.3/deploy/xcosctl" bootstrap >"$TEST_ROOT/symlink-env.out" 2>&1; then
-  fail "bootstrap accepted a symbolic-link environment file"
-fi
-
-BOOTSTRAP_OUTPUT="$TEST_ROOT/bootstrap.out"
-run_operation "$INSTALL_ROOT/releases/1.0.3/deploy/xcosctl" bootstrap >"$BOOTSTRAP_OUTPUT"
-ENV_FILE="$CONFIG_ROOT/xcos.env"
-[[ "$(stat -c '%a' "$ENV_FILE")" == "600" ]] || fail "environment file is not mode 0600"
-! grep -q '^XCSS_DEV_WEB_DIR=' "$ENV_FILE" || fail "production sets a development Web override"
-grep -q '^PUBLIC_RTSP_PUBLISH_BASE_URL=REPLACE_WITH_PUBLIC_RTSPS_ORIGIN$' "$ENV_FILE" ||
-  fail "bootstrap did not require an explicit public RTSPS publish origin"
-JWT_VALUE="$(sed -n 's/^APP_JWT_SECRET=//p' "$ENV_FILE")"
-KEY_VALUE="$(sed -n 's/^CREDENTIALS_KEY=//p' "$ENV_FILE")"
-PASSWORD_VALUE="$(sed -n 's/^BOOTSTRAP_ADMIN_PASSWORD=//p' "$ENV_FILE")"
-for secret in "$JWT_VALUE" "$KEY_VALUE" "$PASSWORD_VALUE"; do
-  if grep -Fq -- "$secret" "$BOOTSTRAP_OUTPUT"; then
-    fail "bootstrap printed a generated secret"
-  fi
+run_build
+verify_release "$INSTALL_ROOT"
+[[ ! -e "$INSTALL_ROOT/releases" && ! -e "$INSTALL_ROOT/current" ]] || fail "version tree required"
+for file in systemd/xcos.service systemd/xcos-mediamtx.service config/xcos.json.example config/mediamtx.env.example; do
+  [[ -f "$INSTALL_ROOT/$file" ]] || fail "missing packaged $file"
 done
-
-ENV_DIGEST="$(sha256sum "$ENV_FILE" | awk '{print $1}')"
-run_operation "$INSTALL_ROOT/releases/1.0.3/deploy/xcosctl" bootstrap >/dev/null
-[[ "$(sha256sum "$ENV_FILE" | awk '{print $1}')" == "$ENV_DIGEST" ]] ||
-  fail "bootstrap overwrote an existing environment file"
-if run_operation "$INSTALL_ROOT/releases/1.0.3/deploy/xcosctl" start >"$TEST_ROOT/unconfirmed.out" 2>&1; then
-  fail "start accepted an unconfirmed generated administrator password"
+[[ ! -e "$INSTALL_ROOT/deploy/common.sh" ]] || fail "build helper leaked into package"
+manifest_before="$(sha256sum "$INSTALL_ROOT/RELEASE-MANIFEST")"
+if run_build >"$TEST_ROOT/repeated-build.log" 2>&1; then
+  fail "rebuild overwrote existing output"
 fi
-
-sed -i 's/^BOOTSTRAP_ADMIN_PASSWORD=.*/BOOTSTRAP_ADMIN_PASSWORD=operator-reviewed-password-1.0.0/' "$ENV_FILE"
-sed -i 's|^PUBLIC_RTSP_PUBLISH_BASE_URL=.*|PUBLIC_RTSP_PUBLISH_BASE_URL=rtsps://xcos.example:8322|' "$ENV_FILE"
-printf '%s\n' 'test certificate' >"$CONFIG_ROOT/xcos-rtsp.crt"
-printf '%s\n' 'test private key' >"$CONFIG_ROOT/xcos-rtsp.key"
-chmod 0644 -- "$CONFIG_ROOT/xcos-rtsp.crt"
-chmod 0600 -- "$CONFIG_ROOT/xcos-rtsp.key"
-chmod 0600 -- "$ENV_FILE"
-run_operation "$INSTALL_ROOT/releases/1.0.3/deploy/xcosctl" bootstrap --confirm-config >/dev/null
-[[ ! -e "$CONFIG_ROOT/xcos.REVIEW-SECRETS-BEFORE-START" ]] || fail "review marker was not cleared"
-[[ -f "$STATE_ROOT/db/app.db" && -d "$STATE_ROOT/db/logs" ]] || fail "confirmation did not explicitly init current state"
-if grep -q '^BOOTSTRAP_ADMIN_PASSWORD=' "$ENV_FILE"; then
-  fail "confirmation retained the transient administrator password after successful init"
+[[ "$(sha256sum "$INSTALL_ROOT/RELEASE-MANIFEST")" == "$manifest_before" ]] || fail "no-clobber rejection modified output"
+chmod 0644 "$INSTALL_ROOT/config/xcos.json.example"
+printf '\n' >>"$INSTALL_ROOT/config/xcos.json.example"
+chmod 0444 "$INSTALL_ROOT/config/xcos.json.example"
+if (verify_release "$INSTALL_ROOT") >"$TEST_ROOT/tamper.log" 2>&1; then
+  fail "explicit verification accepted modified package"
 fi
-CURRENT_STATE_SHA="$(sha256sum "$STATE_ROOT/db/app.db" | awk '{print $1}')"
-run_operation "$INSTALL_ROOT/releases/1.0.3/deploy/xcosctl" bootstrap --confirm-config >/dev/null
-[[ "$(sha256sum "$STATE_ROOT/db/app.db" | awk '{print $1}')" == "$CURRENT_STATE_SHA" ]] || fail "confirmation reinitialized existing state"
-
-# Failure after spawning the companion rolls back only this invocation and
-# leaves no stale PID file or surviving process.
-FAILED_MEDIA_PID_AUDIT="$TEST_ROOT/failed-media.pid"
-if run_operation env \
-  XCOS_TEST_CURL_FAILURE=1 \
-  FAKE_MEDIA_PID_AUDIT="$FAILED_MEDIA_PID_AUDIT" \
-  "$INSTALL_ROOT/releases/1.0.3/deploy/xcosctl" start >"$TEST_ROOT/readiness-failure.out" 2>&1; then
-  fail "start succeeded while its readiness probe failed"
+INSTALL_ROOT="$TEST_ROOT/output/symlink"
+ln -s "$TEST_ROOT/output/xcos" "$INSTALL_ROOT"
+if run_build >"$TEST_ROOT/symlink.log" 2>&1; then
+  fail "build accepted a symlink destination"
 fi
-[[ -s "$FAILED_MEDIA_PID_AUDIT" ]] || fail "failed start never launched the companion fixture"
-FAILED_MEDIA_PID="$(<"$FAILED_MEDIA_PID_AUDIT")"
-if kill -0 "$FAILED_MEDIA_PID" 2>/dev/null; then
-  fail "failed start left its companion process running"
-fi
-[[ ! -e "$RUNTIME_ROOT/mediamtx.pid" ]] || fail "failed start left a companion PID file"
-[[ ! -e "$RUNTIME_ROOT/app.pid" ]] || fail "failed start left an application PID file"
-
-# start and stop share a short-lived operation lock, so concurrent launchers
-# cannot race while publishing PID files.
-(
-  exec 8<>"$RUNTIME_ROOT/operations.lock"
-  flock --exclusive 8
-  # The child closes FD 8; only this subshell owns the test lock.
-  sleep 30 8>&-
-) &
-OPERATION_LOCK_PID="$!"
-OPERATION_LOCK_HELD=false
-for _ in {1..20}; do
-  if ! flock --exclusive --nonblock "$RUNTIME_ROOT/operations.lock" -c true; then
-    OPERATION_LOCK_HELD=true
-    break
-  fi
-  sleep 0.01
-done
-[[ "$OPERATION_LOCK_HELD" == true ]] || fail "operation-lock fixture did not acquire its lock"
-START_IGNORED_OPERATION_LOCK=false
-if run_operation "$INSTALL_ROOT/releases/1.0.3/deploy/xcosctl" start >"$TEST_ROOT/operation-lock.out" 2>&1; then
-  START_IGNORED_OPERATION_LOCK=true
-fi
-kill "$OPERATION_LOCK_PID" 2>/dev/null || true
-wait "$OPERATION_LOCK_PID" 2>/dev/null || true
-OPERATION_LOCK_PID=""
-[[ "$START_IGNORED_OPERATION_LOCK" != true ]] || fail "start ignored another active native operation"
-
-# Runtime entries and artifacts must remain complete after the source fixture disappears.
-chmod -R u+w -- "$SOURCE_FIXTURE"
-rm -rf -- "$SOURCE_FIXTURE"
-run_operation "$INSTALL_ROOT/releases/1.0.3/deploy/xcosctl" start >/dev/null
-for _ in {1..40}; do
-  [[ -s "$RUNTIME_ROOT/app.pid" && -s "$RUNTIME_ROOT/mediamtx.pid" ]] && break
-  sleep 0.05
-done
-[[ -s "$RUNTIME_ROOT/app.pid" && -s "$RUNTIME_ROOT/mediamtx.pid" ]] ||
-  fail "release processes did not publish their PID files"
-STATUS_OUTPUT="$(run_operation "$INSTALL_ROOT/releases/1.0.3/deploy/xcosctl" status)"
-[[ "$STATUS_OUTPUT" == *'Rust application: running'* ]] || fail "status missed the application"
-[[ "$STATUS_OUTPUT" == *'MediaMTX: running'* ]] || fail "status missed MediaMTX"
-ORIGINAL_APP_PID="$(<"$RUNTIME_ROOT/app.pid")"
-printf '%s\n' invalid >"$RUNTIME_ROOT/app.pid"
-if run_operation "$INSTALL_ROOT/releases/1.0.3/deploy/xcosctl" status >"$TEST_ROOT/invalid-pid.out" 2>&1; then
-  fail "status treated a malformed PID file as a stopped service"
-fi
-printf '%s\n' "$$" >"$RUNTIME_ROOT/app.pid"
-if run_operation "$INSTALL_ROOT/releases/1.0.3/deploy/xcosctl" status >"$TEST_ROOT/foreign-pid.out" 2>&1; then
-  fail "status accepted a PID owned by a different process"
-fi
-printf '%s\n' "$ORIGINAL_APP_PID" >"$RUNTIME_ROOT/app.pid"
-run_operation "$INSTALL_ROOT/releases/1.0.3/deploy/xcosctl" stop >/dev/null
-if STATUS_OUTPUT="$(run_operation "$INSTALL_ROOT/releases/1.0.3/deploy/xcosctl" status)"; then
-  fail "status reported success for a stopped application"
-fi
-[[ "$STATUS_OUTPUT" == *'Rust application: stopped'* ]] || fail "application did not stop"
-[[ "$STATUS_OUTPUT" == *'MediaMTX: stopped'* ]] || fail "MediaMTX did not stop"
-
-# Existing release files with hard-link aliases fail closed.
-RELEASE_ROOT="$INSTALL_ROOT/releases/1.0.3"
-chmod 0755 -- "$RELEASE_ROOT" "$RELEASE_ROOT/share"
-ln -- "$RELEASE_ROOT/share/web-assets.json" "$TEST_ROOT/release-hardlink-alias"
-chmod 0555 -- "$RELEASE_ROOT/share" "$RELEASE_ROOT"
-if run_operation "$INSTALL_ROOT/releases/1.0.3/deploy/xcosctl" status >"$TEST_ROOT/hardlink.out" 2>&1; then
-  fail "release verification accepted a hard-linked asset"
-fi
-
-grep -q '^sha256=25947caac403f37ec881c9be213af2cad67e344a6c7098905b0d31c17f40e336$' \
-  "$REPOSITORY_ROOT/config/mediamtx.lock" || fail "the reviewed production MediaMTX digest changed"
-
-echo "Xcos native temporary-root lifecycle tests passed"
+printf '%s\n' 'Deployment tests passed: thin systemctl forwarding, service contract, complete direct payload, no-clobber and explicit integrity checks'

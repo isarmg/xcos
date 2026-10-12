@@ -46,7 +46,7 @@ mod tests {
         assert!(web.contains("export function apiPath"));
         assert!(!web.contains("\"/api/"));
         let vite = include_str!("../web/vite.config.ts");
-        assert!(vite.contains("\"/api/v1\": \"http://127.0.0.1:8080\""));
+        assert!(vite.contains("\"/api/v1\": \"http://127.0.0.1:18106\""));
         assert!(!vite.contains("\"/api\":"));
 
         let routes = include_str!("routes/mod.rs");

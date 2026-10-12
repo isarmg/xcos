@@ -10,7 +10,7 @@ pub(crate) fn database_path(database_url: &str) -> anyhow::Result<PathBuf> {
     let value = database_url
         .strip_prefix("sqlite://")
         .or_else(|| database_url.strip_prefix("sqlite:"))
-        .context("DATABASE_URL must use the sqlite scheme")?;
+        .context("XCOS_DATABASE_URL must use the sqlite scheme")?;
     ensure!(!value.is_empty(), "SQLite database path must not be empty");
     ensure!(value != ":memory:", "in-memory SQLite is not supported");
     ensure!(
@@ -18,7 +18,7 @@ pub(crate) fn database_path(database_url: &str) -> anyhow::Result<PathBuf> {
             && !value.contains('#')
             && !value.contains('%')
             && !value.contains('\0'),
-        "DATABASE_URL must be a plain, unescaped SQLite file URL"
+        "XCOS_DATABASE_URL must be a plain, unescaped SQLite file URL"
     );
     let path = PathBuf::from(value);
     ensure!(path.is_absolute(), "SQLite database path must be absolute");

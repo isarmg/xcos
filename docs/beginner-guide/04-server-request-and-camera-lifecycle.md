@@ -2,7 +2,7 @@
 
 ## 4.1 正式启动门
 
-Server 在监听前验证不可变发行树、Web fingerprint、数据库路径和锁、当前 Schema、lease 不变量及全部
+Server 在监听前验证配置、固定 companion、内嵌 Web fingerprint、数据库路径和锁、当前 Schema、lease 不变量及全部
 持久实例密码可由当前 external key 认证。无法证明任何一项即拒绝，不在请求期间懒修复。
 
 ## 4.2 登录链路

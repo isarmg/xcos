@@ -104,11 +104,12 @@ use std::{
 };
 fn test_state(pool: sqlx::SqlitePool, endpoint: &str) -> AppState {
     let config = Arc::new(crate::config::Config {
-        bind_addr: "127.0.0.1:8080".parse().unwrap(),
+        bind_addr: "127.0.0.1:18106".parse().unwrap(),
+        media_callback_bind: "127.0.0.1:18107".parse().unwrap(),
         database_url: "sqlite://unused".into(),
         jwt_secret: vec![9_u8; 32],
         credentials_key: [7_u8; 32],
-        runtime_directory: "/tmp/xcos-test".into(),
+
         development_mode: true,
         media_token_ttl: Duration::from_secs(120),
         mediamtx_api_url: endpoint.into(),
@@ -120,6 +121,7 @@ fn test_state(pool: sqlx::SqlitePool, endpoint: &str) -> AppState {
         reconcile_interval: Duration::from_secs(60),
         request_timeout: Duration::from_secs(2),
         static_dir: None,
+        trusted_proxies: Vec::new(),
     });
     let http = reqwest::Client::builder()
         .no_proxy()

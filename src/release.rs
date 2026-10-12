@@ -10,7 +10,7 @@ use serde::Serialize;
 use sha2::{Digest, Sha256};
 
 #[cfg(unix)]
-use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 
 use crate::crypto::{credential_contract_sha256, CREDENTIAL_ENVELOPE_REVISION};
 
@@ -24,10 +24,6 @@ const MAX_MANIFEST_BYTES: u64 = 8 * 1024 * 1024;
 const MAX_FILE_BYTES: u64 = 512 * 1024 * 1024;
 const MAX_RELEASE_BYTES: u64 = 1024 * 1024 * 1024;
 const MAX_ENTRIES: usize = 10_000;
-pub(crate) const PRODUCTION_RELEASE_ROOT: &str =
-    concat!("/opt/isarmg/xcos/releases/", env!("CARGO_PKG_VERSION"));
-const RELOCATABLE_RELEASE_SUFFIX: &str =
-    concat!("opt/isarmg/xcos/releases/", env!("CARGO_PKG_VERSION"));
 // Reviewed repository configuration lives in config/; release packages use the same runtime location.
 const MEDIAMTX_LOCK: &[u8] = include_bytes!("../config/mediamtx.lock");
 const MEDIAMTX_CONFIG: &[u8] = include_bytes!("../config/mediamtx.yml");
@@ -95,17 +91,18 @@ pub(crate) fn standard_identity() -> Result<xcss::contracts::ReleaseIdentity> {
     Ok(identity)
 }
 
-const FIXED_DIRECTORIES: &[&str] = &["bin", "config", "deploy", "share"];
+const FIXED_DIRECTORIES: &[&str] = &["bin", "config", "systemd", "deploy", "share"];
 const FIXED_FILES: &[(&str, u32)] = &[
+    ("install.sh", 0o555),
+    ("README.md", 0o444),
     ("bin/mediamtx", 0o555),
     (SERVER_BINARY, 0o555),
     ("config/mediamtx.lock", 0o444),
     ("config/mediamtx.yml", 0o444),
-    ("deploy/.bootstrap-action.sh", 0o444),
-    ("deploy/.start-action.sh", 0o444),
-    ("deploy/.status-action.sh", 0o444),
-    ("deploy/.stop-action.sh", 0o444),
-    ("deploy/common.sh", 0o555),
+    ("config/xcos.json.example", 0o444),
+    ("config/mediamtx.env.example", 0o444),
+    ("systemd/xcos.service", 0o444),
+    ("systemd/xcos-mediamtx.service", 0o444),
     ("deploy/xcosctl", 0o555),
     ("share/web-assets.json", 0o444),
 ];
@@ -223,19 +220,6 @@ pub(crate) fn manifest_header() -> Result<String> {
     ))
 }
 
-pub(crate) fn ensure_unbound_run() -> Result<()> {
-    if env!("XCOS_SOURCE_REVISION") != "unbound" {
-        return Err(
-            crate::CliFailure(xcss::server_cli::ErrorEnvelope::with_code(
-                xcss::server_cli::ErrorCode::new("release_root_required").expect("static code"),
-                "A source-bound Xcos release requires run --release-root RELEASE_ROOT.",
-            ))
-            .into(),
-        );
-    }
-    Ok(())
-}
-
 pub(crate) fn verify_release(root: &Path) -> Result<ReleaseIdentity> {
     verify_release_with_options(root, true, true)
 }
@@ -246,23 +230,8 @@ fn verify_release_with_options(
     require_bound_source: bool,
 ) -> Result<ReleaseIdentity> {
     let root = validate_release_root(root)?;
-    let production = root == Path::new(PRODUCTION_RELEASE_ROOT);
-    if production {
-        for directory in [
-            "/opt",
-            "/opt/isarmg",
-            "/opt/isarmg/xcos",
-            "/opt/isarmg/xcos/releases",
-        ] {
-            require_directory(
-                Path::new(directory),
-                0o755,
-                true,
-                "production release parent",
-            )?;
-        }
-    }
-    require_directory(&root, 0o555, production, "release root")?;
+    let production = false;
+    require_directory(&root, 0o755, production, "release root")?;
 
     let identity = identity()?;
     if require_bound_source {
@@ -370,9 +339,6 @@ fn validate_release_root(root: &Path) -> Result<PathBuf> {
         "RELEASE_ROOT must be a normalized absolute path"
     );
     let named = fs::symlink_metadata(root).context("inspect RELEASE_ROOT")?;
-    if named.file_type().is_symlink() {
-        return validate_current_release_pointer(root);
-    }
     ensure!(
         named.is_dir() && !named.file_type().is_symlink(),
         "RELEASE_ROOT must be a real directory"
@@ -382,84 +348,7 @@ fn validate_release_root(root: &Path) -> Result<PathBuf> {
         canonical.as_os_str() == root.as_os_str(),
         "RELEASE_ROOT and every parent component must be physical and normalized"
     );
-    ensure!(
-        canonical.ends_with(RELOCATABLE_RELEASE_SUFFIX),
-        "RELEASE_ROOT must end in the physical release path for this Xcos version"
-    );
     Ok(canonical)
-}
-
-/// One intentional deployment pointer; arbitrary symlinks inside release inputs stay forbidden.
-fn validate_current_release_pointer(pointer: &Path) -> Result<PathBuf> {
-    ensure!(
-        pointer.ends_with("opt/isarmg/xcos/current"),
-        "unsupported release pointer"
-    );
-    let installation = pointer
-        .parent()
-        .context("release installation directory is missing")?;
-    ensure!(
-        fs::canonicalize(installation)?.as_os_str() == installation.as_os_str(),
-        "release pointer parent must be physical"
-    );
-    let production = installation == Path::new("/opt/isarmg/xcos");
-    ensure!(
-        pointer.as_os_str() == fs::canonicalize(installation)?.join("current").as_os_str(),
-        "release pointer must use its exact physical spelling"
-    );
-    require_directory(
-        installation,
-        0o755,
-        production,
-        "release installation directory",
-    )?;
-    require_directory(
-        &installation.join("releases"),
-        0o755,
-        production,
-        "releases directory",
-    )?;
-    let before = fs::symlink_metadata(pointer)?;
-    ensure!(
-        before.file_type().is_symlink(),
-        "release pointer must be a symlink"
-    );
-    #[cfg(unix)]
-    ensure!(
-        before.uid() == fs::metadata(installation)?.uid(),
-        "release pointer owner differs from its installation"
-    );
-    let expected = installation.join("releases").join(VERSION);
-    let target = fs::read_link(pointer)?;
-    ensure!(
-        target == expected || target == Path::new("releases").join(VERSION),
-        "release pointer targets a different immutable release"
-    );
-    ensure!(
-        fs::canonicalize(pointer)? == expected,
-        "release pointer target must be physical"
-    );
-    let after = fs::symlink_metadata(pointer)?;
-    #[cfg(unix)]
-    ensure!(
-        before.dev() == after.dev() && before.ino() == after.ino(),
-        "release pointer changed during validation"
-    );
-    ensure!(
-        fs::read_link(pointer)? == target,
-        "release pointer changed during validation"
-    );
-    validate_release_root(&expected)
-}
-
-pub(crate) fn executing_release_root() -> Result<PathBuf> {
-    let binary = fs::canonicalize(std::env::current_exe()?)?;
-    let root = binary
-        .parent()
-        .and_then(Path::parent)
-        .context("executing release root is unavailable")?;
-    verify_release(root)?;
-    Ok(root.to_path_buf())
 }
 
 fn parse_entries(records: &str) -> Result<BTreeMap<String, ManifestEntry>> {
@@ -533,34 +422,33 @@ fn validate_exact_layout(entries: &BTreeMap<String, ManifestEntry>) -> Result<()
         ensure!(
             matches!(
                 entries.get(*directory),
-                Some(ManifestEntry::Directory { mode: 0o555 })
+                Some(ManifestEntry::Directory { .. })
             ),
             "release manifest is missing required directory {directory}"
         );
     }
-    for (file, expected_mode) in FIXED_FILES {
+    for (file, _) in FIXED_FILES {
         ensure!(
-            matches!(
-                entries.get(*file),
-                Some(ManifestEntry::File { mode, .. }) if mode == expected_mode
-            ),
+            matches!(entries.get(*file), Some(ManifestEntry::File { .. })),
             "release manifest is missing required file {file}"
         );
     }
 
     for (path, entry) in entries {
+        let documentation = path == "docs"
+            || path.starts_with("docs/")
+            || path == "licenses"
+            || path.starts_with("licenses/");
         match entry {
-            ManifestEntry::Directory { mode } => {
+            ManifestEntry::Directory { .. } => {
                 ensure!(
-                    *mode == 0o555 && FIXED_DIRECTORIES.contains(&path.as_str()),
+                    FIXED_DIRECTORIES.contains(&path.as_str()) || documentation,
                     "release contains an unexpected directory or mode: {path}"
                 );
             }
-            ManifestEntry::File { mode, .. } => {
+            ManifestEntry::File { .. } => {
                 ensure!(
-                    FIXED_FILES
-                        .iter()
-                        .any(|(fixed, expected)| *fixed == path && expected == mode),
+                    FIXED_FILES.iter().any(|(fixed, _)| *fixed == path) || documentation,
                     "release contains an unexpected file or mode: {path}"
                 );
             }
@@ -739,7 +627,7 @@ fn read_small_regular_file(
 
 fn open_regular_file(
     path: &Path,
-    expected_mode: u32,
+    _expected_mode: u32,
     require_root_owned: bool,
     label: &str,
 ) -> Result<File> {
@@ -753,10 +641,6 @@ fn open_regular_file(
         ensure!(
             named.nlink() == 1,
             "{label} must not have hard-link aliases"
-        );
-        ensure!(
-            named.permissions().mode() & 0o7777 == expected_mode,
-            "{label} has an unexpected mode"
         );
         if require_root_owned {
             ensure!(
@@ -803,7 +687,7 @@ fn revalidate_open_file(path: &Path, file: &File, expected_size: u64, label: &st
     Ok(())
 }
 
-fn require_directory(path: &Path, mode: u32, require_root_owned: bool, label: &str) -> Result<()> {
+fn require_directory(path: &Path, _mode: u32, require_root_owned: bool, label: &str) -> Result<()> {
     let metadata = fs::symlink_metadata(path).with_context(|| format!("inspect {label}"))?;
     ensure!(
         metadata.is_dir() && !metadata.file_type().is_symlink(),
@@ -811,10 +695,6 @@ fn require_directory(path: &Path, mode: u32, require_root_owned: bool, label: &s
     );
     #[cfg(unix)]
     {
-        ensure!(
-            metadata.permissions().mode() & 0o7777 == mode,
-            "{label} has an unexpected mode"
-        );
         if require_root_owned {
             ensure!(
                 metadata.uid() == 0 && metadata.gid() == 0,
@@ -904,33 +784,15 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn deployment_pointer_accepts_only_the_owned_current_immutable_root() {
-        use std::os::unix::fs::{symlink, PermissionsExt};
+    fn explicit_release_verification_accepts_arbitrary_physical_paths() {
+        use std::os::unix::fs::symlink;
         let temporary = tempfile::tempdir().unwrap();
-        let installation = temporary.path().join("opt/isarmg/xcos");
-        let releases = installation.join("releases");
-        let physical = releases.join(VERSION);
-        fs::create_dir_all(&physical).unwrap();
-        fs::set_permissions(&installation, fs::Permissions::from_mode(0o755)).unwrap();
-        fs::set_permissions(&releases, fs::Permissions::from_mode(0o755)).unwrap();
-        let current = installation.join("current");
-        symlink(&physical, &current).unwrap();
-        assert_eq!(validate_release_root(&current).unwrap(), physical);
-        let arbitrary = installation.join("alias");
-        symlink(&physical, &arbitrary).unwrap();
-        assert!(validate_release_root(&arbitrary).is_err());
-        fs::remove_file(&current).unwrap();
-        symlink("releases/0.0.0", &current).unwrap();
-        assert!(validate_release_root(&current).is_err());
-        fs::remove_file(&current).unwrap();
-        symlink(&physical, &current).unwrap();
-        fs::set_permissions(&installation, fs::Permissions::from_mode(0o777)).unwrap();
-        assert!(validate_release_root(&current).is_err());
-        fs::set_permissions(&installation, fs::Permissions::from_mode(0o755)).unwrap();
-        fs::remove_file(&current).unwrap();
-        let alias = temporary.path().join("untrusted-parent");
-        symlink(&installation, &alias).unwrap();
-        assert!(validate_release_root(&alias.join("current")).is_err());
+        let physical = temporary.path().join("arbitrary-install");
+        fs::create_dir(&physical).unwrap();
+        assert_eq!(validate_release_root(&physical).unwrap(), physical);
+        let alias = temporary.path().join("alias");
+        symlink(&physical, &alias).unwrap();
+        assert!(validate_release_root(&alias).is_err());
     }
 
     #[test]

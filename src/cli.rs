@@ -1,6 +1,5 @@
 use crate::{app, camera_state, config, doctor, release, sqlite, static_assets, CliFailure};
-use base64::{engine::general_purpose::STANDARD, Engine as _};
-use clap::{Args, Parser, Subcommand};
+use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
 #[derive(Parser)]
@@ -32,12 +31,10 @@ enum Command {
     },
     /// Run the current initialized data and embedded Web resources.
     Run {
-        #[arg(long)]
-        release_root: Option<PathBuf>,
         #[command(flatten)]
         settings: config::Overrides,
     },
-    /// Perform read-only current configuration and data checks.
+    /// Validate configuration without requiring initialized state.
     Config {
         #[command(subcommand)]
         command: ConfigCommand,
@@ -47,8 +44,21 @@ enum Command {
         #[command(flatten)]
         settings: config::Overrides,
     },
-    /// Check database read/write, credential, storage, readiness and companion contracts.
-    Doctor(DoctorArgs),
+    /// Check initialized state and companion contracts offline.
+    Check {
+        #[command(flatten)]
+        settings: config::Overrides,
+    },
+    /// Offline administrator maintenance.
+    Admin {
+        #[command(subcommand)]
+        command: AdminCommand,
+    },
+    /// Render the effective MediaMTX configuration to stdout.
+    MediaConfig {
+        #[command(flatten)]
+        settings: config::Overrides,
+    },
     /// Print the static asset contract embedded in this build.
     #[command(hide = true)]
     StaticContract,
@@ -75,39 +85,14 @@ enum ConfigCommand {
     },
 }
 
-#[derive(Args)]
-struct DoctorArgs {
-    #[arg(long, env = "DATABASE_URL", hide_env_values = true)]
-    database_url: String,
-    #[command(flatten)]
-    media: MediaPaths,
-    /// Skip live loopback HTTP probes; storage and companion checks still run.
-    #[arg(long)]
-    offline: bool,
-    #[arg(
-        long,
-        env = "XCOS_READY_URL",
-        default_value = "http://127.0.0.1:8080/readyz"
-    )]
-    app_ready_url: String,
-    #[arg(
-        long,
-        env = "MEDIAMTX_READY_URL",
-        default_value = "http://127.0.0.1:9997/v3/info"
-    )]
-    mediamtx_ready_url: String,
-}
-
-#[derive(Args)]
-struct MediaPaths {
-    #[arg(long, env = "MEDIAMTX_CONFIG")]
-    mediamtx_config: PathBuf,
-    #[arg(long, env = "MEDIAMTX_CONTRACT")]
-    mediamtx_contract: PathBuf,
-    #[arg(long, env = "MEDIAMTX_BINARY")]
-    mediamtx_binary: PathBuf,
-    #[arg(long, env = "RECORDINGS_DIR")]
-    recordings_dir: PathBuf,
+#[derive(Subcommand)]
+enum AdminCommand {
+    ResetPassword {
+        #[arg(long, default_value = "admin")]
+        username: String,
+        #[command(flatten)]
+        settings: config::Overrides,
+    },
 }
 
 pub(crate) async fn run() -> std::process::ExitCode {
@@ -164,12 +149,16 @@ pub(crate) async fn run() -> std::process::ExitCode {
         }
     }
     use tracing_subscriber::prelude::*;
+    let log_level = config::load(
+        cli.config.as_deref(),
+        cli.data_dir.as_deref(),
+        &config::Overrides::default(),
+    )
+    .map(|loaded| loaded.value.log_level)
+    .unwrap_or_else(|_| "info".into());
     let log_layer = xcss::log::XcssStructuredLayer::new("xcos").expect("static service identity");
     tracing_subscriber::registry()
-        .with(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "info,tower_http=info".into()),
-        )
+        .with(tracing_subscriber::EnvFilter::new(log_level))
         .with(log_layer.clone())
         .init();
     match execute(cli, &log_layer).await {
@@ -239,28 +228,23 @@ async fn execute(cli: Cli, log_layer: &xcss::log::XcssStructuredLayer) -> anyhow
         Command::Init { username, settings } => {
             let loaded = config::load(cli.config.as_deref(), cli.data_dir.as_deref(), &settings)?;
             let settings = loaded.value;
-            let config = settings.effective()?;
+            settings.validate_configuration()?;
             let root = settings.data_directory()?;
             let username = xcss::admin_auth::normalize_administrator_username(&username)?;
-            use std::io::Read;
-            let mut password = String::new();
-            std::io::stdin().take(4097).read_to_string(&mut password)?;
-
-            let password = password.trim_end_matches(['\r', '\n']);
-            xcss::admin_auth::validate_password(password)?;
+            let password = read_password()?;
             xcss::server_cli::create_empty_private_directory(&root).map_err(CliFailure)?;
             let state_directory = xcss::state_file::PrivateStateDirectory::open(&root)?;
             state_directory.verify_no_pending_maintenance()?;
             let _maintenance = state_directory.try_maintenance_lock()?;
             state_directory.verify_no_pending_maintenance()?;
-            xcss::state_file::PrivateStateDirectory::create(&config.runtime_directory)?;
             xcss::server_cli::create_runtime_log_directory(&root).map_err(CliFailure)?;
             let recordings = settings
                 .recordings_directory
                 .clone()
                 .unwrap_or_else(|| root.join("recordings"));
             xcss::state_file::PrivateStateDirectory::create(&recordings)?;
-            sqlite::initialize_with_administrator(&settings.database()?, &username, password)
+            xcss::server_secrets::initialize(&root, &config::InstanceSecrets::generate()?)?;
+            sqlite::initialize_with_administrator(&settings.database()?, &username, &password)
                 .await?;
             tracing::info!(event = "common.initialization.completed");
             println!(
@@ -273,33 +257,60 @@ async fn execute(cli: Cli, log_layer: &xcss::log::XcssStructuredLayer) -> anyhow
             );
             Ok(())
         }
-        Command::Run {
-            release_root,
-            settings,
-        } => {
+        Command::Run { settings } => {
             let loaded = config::load(cli.config.as_deref(), cli.data_dir.as_deref(), &settings)?;
-            let release_root = release_root.or_else(|| loaded.value.release_root.clone());
-            if let Some(root) = &release_root {
-                release::verify_release(root)?;
-            } else {
-                release::ensure_unbound_run()?;
-            }
-            app::serve(
-                loaded.value.effective()?,
-                release_root.as_deref(),
-                log_layer,
+            let config = loaded.value.effective()?;
+            let (media_config, media_contract, media_binary) = loaded.value.companion_paths()?;
+            let recordings = loaded
+                .value
+                .recordings_directory
+                .clone()
+                .unwrap_or(loaded.value.data_directory()?.join("recordings"));
+            doctor::verify_companion(
+                &media_contract,
+                &media_binary,
+                &media_config,
+                &recordings,
+                config.media_callback_bind,
             )
-            .await
+            .await?;
+            app::serve(config, log_layer).await
+        }
+        Command::MediaConfig { settings } => {
+            let loaded = config::load(cli.config.as_deref(), cli.data_dir.as_deref(), &settings)?;
+            let value = loaded.value;
+            let (path, _, _) = value.companion_paths()?;
+            let recordings = value
+                .recordings_directory
+                .clone()
+                .unwrap_or(value.data_directory()?.join("recordings"));
+            print!(
+                "{}",
+                doctor::render_media_config(&path, &recordings, value.media_callback_bind)?
+            );
+            Ok(())
         }
         Command::Config {
             command: ConfigCommand::Validate { settings },
         } => {
             let loaded = config::load(cli.config.as_deref(), cli.data_dir.as_deref(), &settings)?;
+            loaded.value.validate_configuration()?;
+            if cli.json {
+                println!(
+                    "{}",
+                    serde_json::json!({"status":"valid","sources":loaded.sources})
+                );
+            } else {
+                println!("configuration is valid");
+            }
+            Ok(())
+        }
+        Command::Check { settings } => {
+            let loaded = config::load(cli.config.as_deref(), cli.data_dir.as_deref(), &settings)?;
             let config = loaded.value.effective()?;
             let root = loaded.value.data_directory()?;
             xcss::state_file::PrivateStateDirectory::open(&root)?;
             xcss::server_cli::validate_runtime_log_directory(&root).map_err(CliFailure)?;
-            xcss::state_file::PrivateStateDirectory::open(&config.runtime_directory)?;
             let database = loaded.value.database()?;
             let recordings = loaded
                 .value
@@ -308,8 +319,14 @@ async fn execute(cli: Cli, log_layer: &xcss::log::XcssStructuredLayer) -> anyhow
                 .unwrap_or_else(|| root.join("recordings"));
             xcss::state_file::PrivateStateDirectory::open(&recordings)?;
             let (media_config, media_contract, media_binary) = loaded.value.companion_paths()?;
-            doctor::verify_companion(&media_contract, &media_binary, &media_config, &recordings)
-                .await?;
+            doctor::verify_companion(
+                &media_contract,
+                &media_binary,
+                &media_config,
+                &recordings,
+                config.media_callback_bind,
+            )
+            .await?;
             let snapshot = sqlite::current_validation_snapshot(&database).await?;
             let validation = async {
                 xcss::sqlite::integrity_check(snapshot.pool()).await?;
@@ -325,47 +342,64 @@ async fn execute(cli: Cli, log_layer: &xcss::log::XcssStructuredLayer) -> anyhow
             .await;
             snapshot.close().await;
             validation?;
-            let mut state_paths = vec![root, config.runtime_directory, recordings];
-            if loaded.value.release_root.is_none() {
-                state_paths.extend([media_config, media_contract]);
-            }
-            if let Some(path) = cli.config {
-                state_paths.push(path);
-            }
-            let report = serde_json::json!({"status":"valid","schema_identity":sqlite::current_schema_identity()?,"state_paths":state_paths,"sources":loaded.sources});
-            if cli.json {
-                println!("{report}");
-            } else {
-                println!("configuration and current data are valid");
-            }
+            let report = doctor::run(&doctor::DoctorOptions {
+                database_url: config.database_url,
+                mediamtx_config: media_config,
+                mediamtx_contract: media_contract,
+                mediamtx_binary: media_binary,
+                recordings_directory: recordings,
+                credentials_key: config.credentials_key,
+                media_callback_bind: config.media_callback_bind,
+                app_ready_url: format!("http://{}/readyz", config.media_callback_bind),
+                mediamtx_ready_url: format!("{}/v3/info", config.mediamtx_api_url),
+                offline: true,
+            })
+            .await?;
+            println!("{}", serde_json::to_string(&report)?);
+            Ok(())
+        }
+        Command::Admin {
+            command: AdminCommand::ResetPassword { username, settings },
+        } => {
+            let loaded = config::load(cli.config.as_deref(), cli.data_dir.as_deref(), &settings)?;
+            let config = loaded.value.effective()?;
+            let password = read_password()?;
+            let _maintenance =
+                crate::runtime_lock::DatabaseMaintenanceLock::exclusive(&config.database_url)?;
+            sqlite::validate_current_database(&loaded.value.database()?)?;
+            let pool = sqlite::open_pool(&config.database_url).await?;
+            let service = xcss::admin_core::AdministratorService::new(
+                xcss::admin_sqlite::SqliteAdministratorStore::new(pool.clone()),
+            );
+            let now = u64::try_from(
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)?
+                    .as_micros(),
+            )?;
+            let result = service
+                .change_administrator_password(&username, &password, now)
+                .await;
+            pool.close().await;
+            result?;
+            println!(
+                "{}",
+                if cli.json {
+                    r#"{"status":"password_reset"}"#
+                } else {
+                    "administrator password reset; sessions revoked"
+                }
+            );
             Ok(())
         }
         Command::Status { settings } => {
             let loaded = config::load(cli.config.as_deref(), cli.data_dir.as_deref(), &settings)?;
-            let report = xcss::server_cli::query_status(loaded.value.bind_addr, "xcos")
+            let report = xcss::server_cli::query_status(loaded.value.media_callback_bind, "xcos")
                 .await
                 .map_err(CliFailure)?;
             xcss::server_cli::print_report(&report, cli.json)?;
             if !report.ready {
                 std::process::exit(1);
             }
-            Ok(())
-        }
-        Command::Doctor(args) => {
-            let key = required_credentials_key()?;
-            let report = doctor::run(&doctor::DoctorOptions {
-                database_url: args.database_url,
-                mediamtx_config: args.media.mediamtx_config,
-                mediamtx_contract: args.media.mediamtx_contract,
-                mediamtx_binary: args.media.mediamtx_binary,
-                recordings_directory: args.media.recordings_dir,
-                credentials_key: key,
-                app_ready_url: args.app_ready_url,
-                mediamtx_ready_url: args.mediamtx_ready_url,
-                offline: args.offline,
-            })
-            .await?;
-            println!("{}", serde_json::to_string(&report)?);
             Ok(())
         }
         Command::WebAssets => {
@@ -399,14 +433,40 @@ async fn execute(cli: Cli, log_layer: &xcss::log::XcssStructuredLayer) -> anyhow
     }
 }
 
-fn required_credentials_key() -> anyhow::Result<[u8; 32]> {
-    let encoded = std::env::var("CREDENTIALS_KEY").map_err(|_| {
-        anyhow::anyhow!("CREDENTIALS_KEY is required and must remain in secret management")
-    })?;
-    let decoded = STANDARD
-        .decode(encoded)
-        .map_err(|_| anyhow::anyhow!("CREDENTIALS_KEY must be valid base64"))?;
-    decoded
-        .try_into()
-        .map_err(|_| anyhow::anyhow!("CREDENTIALS_KEY must decode to exactly 32 bytes"))
+fn read_password() -> anyhow::Result<String> {
+    use std::io::Read;
+    let mut bytes = Vec::new();
+    std::io::stdin()
+        .take((xcss::admin_auth::PASSWORD_MAX_BYTES + 3) as u64)
+        .read_to_end(&mut bytes)?;
+    if bytes.ends_with(b"\n") {
+        bytes.pop();
+        if bytes.ends_with(b"\r") {
+            bytes.pop();
+        }
+    }
+    let password = String::from_utf8(bytes)?;
+    xcss::admin_auth::validate_password(&password)?;
+    Ok(password)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn config_is_global_and_run_does_not_accept_a_release_root() {
+        for arguments in [
+            vec!["xcos", "--config", "/srv/private/config.json", "run"],
+            vec!["xcos", "run", "--config", "/srv/private/config.json"],
+            vec!["xcos", "check", "--config", "/srv/private/config.json"],
+        ] {
+            let cli = Cli::try_parse_from(arguments).unwrap();
+            assert_eq!(cli.config, Some("/srv/private/config.json".into()));
+        }
+        assert!(Cli::try_parse_from(["xcos", "run", "--release-root", "/opt/old"]).is_err());
+        assert!(
+            Cli::try_parse_from(["xcos", "init", "--username", "admin", "--development"]).is_ok()
+        );
+    }
 }

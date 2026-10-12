@@ -4,110 +4,176 @@ set -euo pipefail
 REPOSITORY_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 # shellcheck source=/dev/null
 source "$REPOSITORY_ROOT/deploy/common.sh"
-
 TEST_ROOT="$(mktemp -d)"
 APP_PID=""
+LEGACY_PORT_PID=""
 cleanup() {
   if [[ -n "$APP_PID" ]]; then
     kill "$APP_PID" 2>/dev/null || true
     wait "$APP_PID" 2>/dev/null || true
+  fi
+  if [[ -n "$LEGACY_PORT_PID" ]]; then
+    kill "$LEGACY_PORT_PID" 2>/dev/null || true
+    wait "$LEGACY_PORT_PID" 2>/dev/null || true
   fi
   chmod -R u+w -- "$TEST_ROOT" 2>/dev/null || true
   rm -rf -- "$TEST_ROOT"
 }
 trap cleanup EXIT
 
-WEB_ROOT="$TEST_ROOT/release/web"
-APP_ROOT="$TEST_ROOT/release/bin"
-STATE_ROOT="$TEST_ROOT/state"
-RUNTIME_ROOT="$TEST_ROOT/runtime"
-mkdir -p -- "$WEB_ROOT" "$APP_ROOT" "$STATE_ROOT/db" "$RUNTIME_ROOT"
-chmod 0700 -- "$STATE_ROOT" "$STATE_ROOT/db" "$RUNTIME_ROOT"
+# Hold the retired default port (or verify another process already holds it).
+python3 - "$TEST_ROOT/legacy-port-ready" <<'LEGACY' &
+import errno, pathlib, signal, socket, sys
+listener = socket.socket()
+try:
+    listener.bind(('127.0.0.1', 8080))
+    listener.listen()
+except OSError as error:
+    if error.errno != errno.EADDRINUSE:
+        raise
+pathlib.Path(sys.argv[1]).write_text('occupied')
+signal.pause()
+LEGACY
+LEGACY_PORT_PID="$!"
+for _ in {1..50}; do
+  [[ ! -e "$TEST_ROOT/legacy-port-ready" ]] || break
+  kill -0 "$LEGACY_PORT_PID" 2>/dev/null || die "Could not reserve old port"
+  sleep 0.1
+done
+[[ -e "$TEST_ROOT/legacy-port-ready" ]] || die "Old port reservation timed out"
 
 SMOKE_SCOPE="${XCOS_SMOKE_SCOPE:-all}"
 [[ "$SMOKE_SCOPE" == all || "$SMOKE_SCOPE" == unbound ]] || die "Unknown smoke scope"
+WEB_ROOT="$TEST_ROOT/build-web"
+mkdir -p "$WEB_ROOT" "$TEST_ROOT/bin" "$TEST_ROOT/config"
+chmod 0700 "$TEST_ROOT/config"
 if [[ -n "${XCOS_SMOKE_UNBOUND_BINARY:-}" ]]; then
   BUILT_APP="$XCOS_SMOKE_UNBOUND_BINARY"
   [[ "$BUILT_APP" == /* && -f "$BUILT_APP" && -x "$BUILT_APP" && ! -L "$BUILT_APP" ]] ||
     die "Prebuilt unbound binary must be an absolute regular executable"
-  [[ "$("$BUILT_APP" --version)" == *' source=unbound' ]] ||
-    die "Development relocation requires an unbound binary"
-  cp -a -- "$REPOSITORY_ROOT/web/dist/." "$WEB_ROOT/"
 else
   npm ci --prefix "$REPOSITORY_ROOT/web" >/dev/null
   CARGO_PROFILE_DEV_DEBUG=0 "$REPOSITORY_ROOT/web/node_modules/.bin/xcss-build-server" \
     --config "$REPOSITORY_ROOT/xcss-web-build.json" --mode development \
-    --no-install --dist "$WEB_ROOT" >"$TEST_ROOT/unified-build.log"
-  # The common entry reports Cargo's actual executable path as its final output.
-  BUILT_APP="$(tail -n 1 "$TEST_ROOT/unified-build.log")"
+    --no-install --dist "$WEB_ROOT" >"$TEST_ROOT/build.log"
+  BUILT_APP="$(tail -n 1 "$TEST_ROOT/build.log")"
 fi
-[[ "$BUILT_APP" == /* && -f "$BUILT_APP" && -x "$BUILT_APP" && ! -L "$BUILT_APP" ]] || {
-  [[ ! -f "$TEST_ROOT/unified-build.log" ]] || cat "$TEST_ROOT/unified-build.log" >&2
-  echo "Common builder did not report a real executable" >&2
-  exit 1
-}
-install -m 0555 -- "$BUILT_APP" "$APP_ROOT/xcos"
-STATIC_MANIFEST="$TEST_ROOT/web-assets.json"
-"$APP_ROOT/xcos" web-assets >"$STATIC_MANIFEST"
-EXPECTED_CONTRACT="$(sha256sum -- "$STATIC_MANIFEST" | awk '{print $1}')"
-[[ "$("$APP_ROOT/xcos" static-contract | tr -d '\r\n')" == "$EXPECTED_CONTRACT" ]] || {
-  echo "Relocated binary has the wrong embedded Web inventory" >&2
-  exit 1
-}
-# The executable must not need the built Web directory at runtime.
-mv -- "$WEB_ROOT" "$TEST_ROOT/build-input-hidden"
+[[ "$("$BUILT_APP" --version)" == *' source=unbound' ]] || die "Expected an unbound development build"
+install -m 0555 "$BUILT_APP" "$TEST_ROOT/bin/unbound-xcos"
 
-PORT="$((24000 + (BASHPID % 10000)))"
-APP_LOG="$TEST_ROOT/app.log"
-(
-  cd /
-  export BIND_ADDR="127.0.0.1:$PORT"
-  export DATABASE_URL="sqlite://$STATE_ROOT/db/app.db"
-  export APP_JWT_SECRET="relocated-smoke-jwt-secret-at-least-32-bytes"
-  export CREDENTIALS_KEY="AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
-  export APP_ENV=production XCOS_RUNTIME_DIR="$RUNTIME_ROOT"
-  export MEDIAMTX_API_URL="http://127.0.0.1:9" MEDIAMTX_PLAYBACK_URL="http://127.0.0.1:9"
-  export PUBLIC_RTSP_PUBLISH_BASE_URL="rtsps://xcos.example:8322"
-  export STATUS_INTERVAL_SECS=60 RECONCILE_INTERVAL_SECS=60 REQUEST_TIMEOUT_SECS=1 RUST_LOG=warn
-  # Missing data must fail before explicit init, without creating database or
-  # administrator, database or lingering PID. Common lease files may remain.
-  # This is a real binary, not the lifecycle fixture.
-  if "$APP_ROOT/xcos" run --json >"$TEST_ROOT/before-init.json" 2>"$TEST_ROOT/before-init.log"; then
-    echo "Run initialized missing data without explicit init" >&2
-    exit 1
+MEDIA_BINARY="${XCOS_SMOKE_MEDIAMTX_BINARY:-}"
+if [[ -z "$MEDIA_BINARY" ]]; then
+  MEDIA_VERSION="$(awk -F= '$1 == "version" {print $2}' "$REPOSITORY_ROOT/config/mediamtx.lock")"
+  curl --fail --location --retry 3 --output "$TEST_ROOT/mediamtx.tar.gz" \
+    "https://github.com/bluenviron/mediamtx/releases/download/$MEDIA_VERSION/mediamtx_${MEDIA_VERSION}_linux_amd64.tar.gz"
+  tar -xzf "$TEST_ROOT/mediamtx.tar.gz" -C "$TEST_ROOT/bin" mediamtx
+  MEDIA_BINARY="$TEST_ROOT/bin/mediamtx"
+fi
+[[ "$(sha256sum "$MEDIA_BINARY" | awk '{print $1}')" == "$(awk -F= '$1 == "sha256" {print $2}' "$REPOSITORY_ROOT/config/mediamtx.lock")" ]] || die "Pinned companion digest mismatch"
+
+SCOPES=(unbound)
+if [[ "$SMOKE_SCOPE" == all ]]; then
+  BOUND_APP="${XCOS_SMOKE_BOUND_BINARY:-}"
+  if [[ -z "$BOUND_APP" ]]; then
+    "$REPOSITORY_ROOT/web/node_modules/.bin/xcss-build-server" \
+      --config "$REPOSITORY_ROOT/xcss-web-build.json" --mode release \
+      --no-install --rust-only --source-revision "$(git -C "$REPOSITORY_ROOT" rev-parse HEAD)" >"$TEST_ROOT/bound-build.log"
+    BOUND_APP="$(tail -n 1 "$TEST_ROOT/bound-build.log")"
   fi
-  [[ ! -e "$STATE_ROOT/db/app.db" && -z "$(find "$RUNTIME_ROOT" -mindepth 1 -maxdepth 1 ! -name .state-instance.lock ! -name .state-maintenance.lock -print -quit)" ]] || {
-    cat "$TEST_ROOT/before-init.json" "$TEST_ROOT/before-init.log" >&2
-    echo "Missing-data rejection left a database or unexpected runtime state" >&2
-    exit 1
+  [[ "$("$BOUND_APP" --version)" =~ source=[0-9a-f]{40}$ ]] || die "Expected a source-bound release build"
+  install -m 0555 "$BOUND_APP" "$TEST_ROOT/bin/bound-xcos"
+  SCOPES+=(bound)
+fi
+# Neither build output nor a release tree is needed to serve embedded assets.
+mv "$WEB_ROOT" "$TEST_ROOT/hidden-build-web"
+for scope in "${SCOPES[@]}"; do
+  APP="$TEST_ROOT/bin/$scope-xcos"
+  STATE_ROOT="$TEST_ROOT/$scope-state"
+  RUNTIME_ROOT="$TEST_ROOT/$scope-runtime"
+  CONFIG="$TEST_ROOT/config/$scope.json"
+  read -r PORT CALLBACK_PORT < <(python3 - <<'PORTS'
+import socket
+listeners = [socket.socket(), socket.socket()]
+for listener in listeners:
+    listener.bind(('127.0.0.1', 0))
+print(*(listener.getsockname()[1] for listener in listeners))
+PORTS
+  )
+  python3 - "$CONFIG" "$STATE_ROOT" "$RUNTIME_ROOT" "$PORT" "$CALLBACK_PORT" "$REPOSITORY_ROOT" "$MEDIA_BINARY" <<'CONFIG'
+import json, os, sys
+path, state, runtime, port, callback, root, media = sys.argv[1:]
+with open(path, 'x') as stream:
+    json.dump({
+        'bind': f'127.0.0.1:{port}', 'media_callback_bind': f'127.0.0.1:{callback}',
+        'data_dir': state, 'development': False,
+        'mediamtx_api_url': 'http://127.0.0.1:9', 'mediamtx_playback_url': 'http://127.0.0.1:9',
+        'mediamtx_config': f'{root}/config/mediamtx.yml',
+        'mediamtx_contract': f'{root}/config/mediamtx.lock', 'mediamtx_binary': media,
+        'public_rtsp_publish_base_url': 'rtsps://xcos.example:8322',
+        'status_interval_secs': 60, 'reconcile_interval_secs': 60, 'request_timeout_secs': 1,
+    }, stream)
+os.chmod(path, 0o600)
+CONFIG
+  "$APP" --config "$CONFIG" config validate >/dev/null
+  "$APP" --config "$CONFIG" media-config >"$TEST_ROOT/pre-init-media.yml"
+  [[ ! -e "$STATE_ROOT" ]] || die "Pure configuration commands created instance state"
+  # Ordinary run must never initialize.
+  if "$APP" --config "$CONFIG" run --json >"$TEST_ROOT/before-init.json" 2>"$TEST_ROOT/before-init.log"; then
+    die "Run accepted missing initialization"
+  fi
+  [[ ! -e "$STATE_ROOT/app.sqlite3" && ! -e "$RUNTIME_ROOT" ]] || die "Rejected run created data or runtime state"
+  printf '%s\n' 'relocated-smoke-bootstrap-password' |
+    "$APP" --config "$CONFIG" init --username smoke-admin >"$TEST_ROOT/init.log" 2>&1 || {
+      cat "$TEST_ROOT/init.log" >&2; die "Explicit initialization failed";
+    }
+  "$APP" --config "$CONFIG" config validate >"$TEST_ROOT/config-validate.log" 2>&1 || {
+    cat "$TEST_ROOT/config-validate.log" >&2; die "Offline configuration validation failed";
   }
-  if ! printf '%s\n' 'relocated-smoke-bootstrap-password' |
-    "$APP_ROOT/xcos" init --username smoke-admin >"$TEST_ROOT/init.log" 2>&1; then
-    cat "$TEST_ROOT/init.log" >&2
-    echo "Explicit init failed after missing-data run rejection" >&2
-    exit 1
+  [[ ! -e "$RUNTIME_ROOT" ]] || die "Init or offline validation created runtime state"
+  # The same effective UID must retain a private JSON file and parent.
+  chmod 0644 "$CONFIG"
+  if "$APP" --config "$CONFIG" config validate >/dev/null 2>&1; then
+    die "World-readable private configuration was accepted"
   fi
-  "$APP_ROOT/xcos" run >"$APP_LOG" 2>&1
-) &
-APP_PID="$!"
-
-READY=false
-for _ in {1..120}; do
-  if curl --fail --silent "http://127.0.0.1:$PORT/healthz" >/dev/null; then
-    READY=true
-    break
+  chmod 0600 "$CONFIG"
+  chmod 0755 "$TEST_ROOT/config"
+  if "$APP" --config "$CONFIG" config validate >/dev/null 2>&1; then
+    die "Non-private configuration parent was accepted"
   fi
-  if ! kill -0 "$APP_PID" 2>/dev/null; then
-    break
-  fi
-  sleep 0.1
-done
-if [[ "$READY" != true ]]; then
-  [[ ! -f "$APP_LOG" ]] || sed -n '1,160p' "$APP_LOG" >&2
-  echo "Relocated Xcos binary did not start" >&2
-  exit 1
-fi
-
+  chmod 0700 "$TEST_ROOT/config"
+  "$APP" --config "$CONFIG" media-config >"$TEST_ROOT/generated-mediamtx.yml"
+  grep -Fq "http://127.0.0.1:$CALLBACK_PORT/internal/v1/media/auth" "$TEST_ROOT/generated-mediamtx.yml" || die "Callback setting did not reach generated companion config"
+  grep -Fq "$STATE_ROOT/recordings/%path/" "$TEST_ROOT/generated-mediamtx.yml" || die "Recording setting did not reach generated companion config"
+  [[ -f "$STATE_ROOT/secrets.json" ]] || die "Init did not create private instance keys"
+  [[ $(stat -c %a "$STATE_ROOT/secrets.json") == 600 ]] || die "Instance keys are not private"
+  KEY_HASH="$(sha256sum "$STATE_ROOT/secrets.json")"
+  mv "$STATE_ROOT/secrets.json" "$TEST_ROOT/saved-secrets.json"
+  if "$APP" --config "$CONFIG" run >/dev/null 2>&1; then die "Run accepted missing keys"; fi
+  [[ ! -e "$STATE_ROOT/secrets.json" ]] || die "Run regenerated missing keys"
+  mv "$TEST_ROOT/saved-secrets.json" "$STATE_ROOT/secrets.json"
+  "$APP" --config "$CONFIG" check >/dev/null
+  [[ "$(sha256sum "$STATE_ROOT/secrets.json")" == "$KEY_HASH" ]] || die "Check changed instance keys"
+  STATIC_MANIFEST="$TEST_ROOT/$scope-web-assets.json"
+  "$APP" web-assets >"$STATIC_MANIFEST"
+  [[ "$("$APP" static-contract)" == "$(sha256sum "$STATIC_MANIFEST" | awk '{print $1}')" ]] || die "Embedded asset inventory differs"
+  kill -0 "$LEGACY_PORT_PID" 2>/dev/null || die "Old port reservation ended before runtime check"
+  APP_LOG="$TEST_ROOT/$scope.log"
+  (cd /; exec "$APP" --config "$CONFIG" run) >"$APP_LOG" 2>&1 &
+  APP_PID="$!"
+  READY=false
+  for _ in {1..120}; do
+    if curl --fail --silent "http://127.0.0.1:$PORT/healthz" >/dev/null; then READY=true; break; fi
+    kill -0 "$APP_PID" 2>/dev/null || break
+    sleep 0.1
+  done
+  if [[ "$READY" != true ]]; then cat "$APP_LOG" >&2; die "Relocated binary failed to start"; fi
+  CALLBACK_STATUS="$(curl --silent --show-error --output "$TEST_ROOT/callback-ready.json" --write-out '%{http_code}' "http://127.0.0.1:$CALLBACK_PORT/readyz")"
+  [[ "$CALLBACK_STATUS" == 200 || "$CALLBACK_STATUS" == 503 ]] || die "Configured callback listener is unavailable"
+  python3 - "$TEST_ROOT/callback-ready.json" <<'CALLBACK'
+import json, sys
+response = json.load(open(sys.argv[1]))
+assert isinstance(response.get('ready'), bool), response
+CALLBACK
 python3 - "$STATIC_MANIFEST" "http://127.0.0.1:$PORT" <<'HTTP'
 import hashlib,json,sys,urllib.error,urllib.request
 manifest=json.load(open(sys.argv[1]))
@@ -130,95 +196,20 @@ try: urllib.request.urlopen(sys.argv[2]+'/assets/missing-resource.js')
 except urllib.error.HTTPError as error: assert error.code==404
 else: raise AssertionError('missing asset did not return 404')
 HTTP
-
-kill "$APP_PID"
-wait "$APP_PID" 2>/dev/null || true
-APP_PID=""
-
-# Production rejects an external-directory override before touching new state.
-REJECTED_STATE="$TEST_ROOT/rejected-override"
-mkdir -p -- "$REJECTED_STATE/db" "$REJECTED_STATE/runtime"
-chmod 0700 -- "$REJECTED_STATE" "$REJECTED_STATE/db" "$REJECTED_STATE/runtime"
-if env BIND_ADDR="127.0.0.1:$PORT" DATABASE_URL="sqlite://$REJECTED_STATE/db/app.db" \
-  APP_JWT_SECRET="relocated-smoke-jwt-secret-at-least-32-bytes" \
-  CREDENTIALS_KEY="AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=" \
-  APP_ENV=production XCOS_RUNTIME_DIR="$REJECTED_STATE/runtime" \
-  XCSS_DEV_WEB_DIR="$TEST_ROOT/build-input-hidden" \
-  PUBLIC_RTSP_PUBLISH_BASE_URL="rtsps://xcos.example:8322" \
-  "$APP_ROOT/xcos" run --json >"$TEST_ROOT/override.json" 2>"$TEST_ROOT/override.log"; then
-  echo "Production accepted a development Web override" >&2
-  exit 1
-fi
-python3 - "$TEST_ROOT/override.json" <<'ERROR'
-import json,sys
-error=json.load(open(sys.argv[1]))
-assert error['code'] == 'invalid_development_override'
-assert error['retryable'] is False
-assert 'rejected-override' not in json.dumps(error)
-ERROR
-[[ ! -e "$REJECTED_STATE/db/app.db" ]]
-[[ -z "$(find "$REJECTED_STATE/runtime" -mindepth 1 -print -quit)" ]]
-mv -- "$TEST_ROOT/build-input-hidden" "$WEB_ROOT"
-
-if [[ "$SMOKE_SCOPE" == unbound ]]; then
-  echo "Xcos real unbound relocation/assets/init/override smoke passed; source-bound release checks not executed"
-  exit 0
-fi
-
-# A source-bound binary must reject run without its physical release root and
-# a missing command; neither case initializes state or starts a listener.
-# before it creates a database or runtime lock. Full physical release startup
-# is exercised by the native publication test with the pinned companion.
-BOUND_APP="$TEST_ROOT/source-bound-xcos"
-if [[ -n "${XCOS_SMOKE_BOUND_BINARY:-}" ]]; then
-  [[ "$XCOS_SMOKE_BOUND_BINARY" == /* && -f "$XCOS_SMOKE_BOUND_BINARY" && -x "$XCOS_SMOKE_BOUND_BINARY" && ! -L "$XCOS_SMOKE_BOUND_BINARY" ]] ||
-    die "Prebuilt bound binary must be an absolute regular executable"
-  [[ "$("$XCOS_SMOKE_BOUND_BINARY" --version)" =~ source=[0-9a-f]{40}$ ]] ||
-    die "Release smoke requires a full source-bound identity"
-  install -m 0555 -- "$XCOS_SMOKE_BOUND_BINARY" "$BOUND_APP"
-else
-  BOUND_REVISION="$(git -C "$REPOSITORY_ROOT" rev-parse HEAD)"
-  "$REPOSITORY_ROOT/web/node_modules/.bin/xcss-build-server" \
-    --config "$REPOSITORY_ROOT/xcss-web-build.json" --mode release \
-    --no-install --rust-only --source-revision "$BOUND_REVISION" >"$TEST_ROOT/bound-build.log"
-  BUILT_BOUND_APP="$(tail -n 1 "$TEST_ROOT/bound-build.log")"
-  [[ "$BUILT_BOUND_APP" == /* && -f "$BUILT_BOUND_APP" && -x "$BUILT_BOUND_APP" && ! -L "$BUILT_BOUND_APP" ]] ||
-    die "Common builder did not report the newly built bound executable"
-  install -m 0555 -- "$BUILT_BOUND_APP" "$BOUND_APP"
-fi
-[[ "$("$BOUND_APP" --version)" =~ source=[0-9a-f]{40}$ ]] ||
-  die "Release smoke requires the actual source-bound binary"
-for command in run implicit; do
-  BOUND_STATE="$TEST_ROOT/source-bound-$command"
-  mkdir -p -- "$BOUND_STATE/db" "$BOUND_STATE/runtime"
-  chmod 0700 -- "$BOUND_STATE" "$BOUND_STATE/db" "$BOUND_STATE/runtime"
-  arguments=(run --json)
-  if [[ "$command" == "implicit" ]]; then
-    arguments=(--json)
+  kill "$APP_PID"
+  wait "$APP_PID" 2>/dev/null || true
+  APP_PID=""
+  [[ "$(sha256sum "$STATE_ROOT/secrets.json")" == "$KEY_HASH" ]] || die "Run changed instance keys"
+  # The release identifier has no bearing on runtime installation layout.
+  if XCOS_STATIC_DIR="$TEST_ROOT/hidden-build-web" "$APP" --config "$CONFIG" run --json >"$TEST_ROOT/override.json" 2>"$TEST_ROOT/override.log"; then
+    die "Production accepted external Web assets"
   fi
-  if env \
-    BIND_ADDR="127.0.0.1:$PORT" \
-    DATABASE_URL="sqlite://$BOUND_STATE/db/app.db" \
-    APP_JWT_SECRET="relocated-smoke-jwt-secret-at-least-32-bytes" \
-    CREDENTIALS_KEY="AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=" \
-    APP_ENV=production \
-    XCOS_RUNTIME_DIR="$BOUND_STATE/runtime" \
-    "$BOUND_APP" "${arguments[@]}" >"$BOUND_STATE/rejection.json" 2>"$BOUND_STATE/rejection.log"; then
-    echo "Source-bound binary accepted $command without its physical release root" >&2
-    exit 1
-  fi
-  python3 - "$BOUND_STATE/rejection.json" "$command" <<'ERROR'
-import json,sys
-error=json.load(open(sys.argv[1]))
-expected = 'release_root_required' if sys.argv[2] == 'run' else 'bad_request'
-assert error['code'] == expected, error
-assert error['retryable'] is False
-assert 'source-bound-' not in json.dumps(error)
+  python3 - "$TEST_ROOT/override.json" <<'ERROR'
+import json, sys
+assert json.load(open(sys.argv[1]))['code'] == 'invalid_development_override'
 ERROR
-  [[ ! -e "$BOUND_STATE/db/app.db" && -z "$(find "$BOUND_STATE/runtime" -mindepth 1 -print -quit)" ]] || {
-    echo "Source-bound $command rejection wrote runtime state" >&2
-    exit 1
-  }
+  if "$APP" --json >"$TEST_ROOT/missing-command.json" 2>/dev/null; then
+    die "Implicit run was accepted"
+  fi
+  echo "$scope binary: no-release-tree startup, explicit init, offline validation, generated media config and all embedded assets passed"
 done
-
-echo "Xcos relocated binary and exact static asset smoke tests passed"

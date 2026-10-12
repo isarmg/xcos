@@ -157,7 +157,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mapfile -d '' scripts < <(git ls-files -z -- 'scripts/*.sh' 'deploy/*.sh' 'deploy/.*-action.sh' 'deploy/xcosctl')
+          mapfile -d '' scripts < <(git ls-files -z -- 'install.sh' 'scripts/*.sh' 'deploy/*.sh' 'deploy/xcosctl')
           if (( ${#scripts[@]} == 0 )); then
             echo 'No tracked native shell scripts found.' >&2
             exit 1
@@ -166,10 +166,8 @@ jobs:
             bash -n "$script"
           done
           shellcheck "${scripts[@]}"
-      - name: Exercise immutable native release lifecycle
+      - name: Verify systemd controls and release packaging
         run: ./scripts/lifecycle-test.sh
-      - name: Verify root and service-owner native input boundaries
-        run: sudo python3 scripts/private-input-ownership-test.py
       - name: Exercise the real pinned companion configuration
         shell: bash
         run: |
@@ -179,17 +177,3 @@ jobs:
             https://github.com/bluenviron/mediamtx/releases/download/v1.20.0/mediamtx_v1.20.0_linux_amd64.tar.gz
           tar -xzf "$companion_dir/mediamtx.tar.gz" -C "$companion_dir" mediamtx
           python3 scripts/companion-smoke-test.py "$companion_dir/mediamtx"
-      - name: Validate the current native proxy contract
-        shell: bash
-        run: |
-          set -euo pipefail
-          test ! -e Caddyfile
-          test -f deploy/Caddyfile
-          test "$(grep -Fxc '        reverse_proxy {$XCOS_WEBRTC_UPSTREAM:127.0.0.1:8889}' deploy/Caddyfile)" -eq 1
-          test "$(grep -Fxc '        reverse_proxy {$XCOS_HLS_UPSTREAM:127.0.0.1:8888} {' deploy/Caddyfile)" -eq 1
-          test "$(grep -Fxc '            header_down Location "^/(.*)$" "/media-hls/$1"' deploy/Caddyfile)" -eq 1
-          test "$(grep -Fxc '        reverse_proxy {$XCOS_HTTP_UPSTREAM:127.0.0.1:8080}' deploy/Caddyfile)" -eq 1
-          if grep -Eq 'reverse_proxy[[:space:]]+(app|mediamtx):' deploy/Caddyfile; then
-            echo 'Container-only proxy names are outside the current native contract.' >&2
-            exit 1
-          fi

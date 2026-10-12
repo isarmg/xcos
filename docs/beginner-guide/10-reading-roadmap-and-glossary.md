@@ -18,12 +18,12 @@
 
 ## 10.3 练习
 
-1. 建立临时当前数据库并运行 offline doctor。
+1. 建立临时当前数据库并运行 离线check。
 2. 用 mock MediaMTX 完成一条成功 operation。
 3. 在远端响应前断开，观察 unknown 与审计。
 4. 启动第二实例，验证锁拒绝。
 5. 篡改复制 release 的一个 asset，验证启动拒绝。
-6. 在隔离私有目录演练显式init、只读config validate和Doctor当前状态检查。
+6. 在隔离私有目录演练显式init、只读config validate和离线 check当前状态检查。
 
 ## 10.4 术语
 

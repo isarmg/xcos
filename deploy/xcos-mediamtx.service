@@ -6,19 +6,23 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=xcos
-Group=xcos
+User=isarmg-xcos
+Group=isarmg-xcos
 WorkingDirectory=/
 UMask=0077
+RuntimeDirectory=isarmg/xcos
+RuntimeDirectoryMode=0700
+# The companion stops last and owns final shared-runtime cleanup.
+RuntimeDirectoryPreserve=restart
 EnvironmentFile=/etc/isarmg/xcos/mediamtx.env
-ExecStartPre=/opt/isarmg/xcos/current/bin/xcos verify-release /opt/isarmg/xcos/current
-ExecStart=/opt/isarmg/xcos/current/bin/mediamtx /opt/isarmg/xcos/current/config/mediamtx.yml
+ExecStartPre=/bin/sh -ec '/opt/isarmg/xcos/bin/xcos --config /etc/isarmg/xcos/config.json media-config > /run/isarmg/xcos/mediamtx.yml'
+ExecStartPre=/bin/chmod 0600 /run/isarmg/xcos/mediamtx.yml
+ExecStart=/opt/isarmg/xcos/bin/mediamtx /run/isarmg/xcos/mediamtx.yml
 Restart=on-failure
 RestartSec=5s
-TimeoutStopSec=30s
+TimeoutStopSec=120s
 KillMode=control-group
 NoNewPrivileges=true
 ProtectSystem=strict
-ProtectHome=true
-PrivateTmp=true
-ReadWritePaths=/var/lib/isarmg/xcos/recordings
+ProtectHome=read-only
+ReadWritePaths=/var/lib/isarmg/xcos /run/isarmg/xcos

@@ -450,11 +450,12 @@ async fn insert_test_client(pool: &sqlx::SqlitePool, id: Uuid, name: &str) {
 
 fn test_state(pool: sqlx::SqlitePool) -> AppState {
     let config = Arc::new(crate::config::Config {
-        bind_addr: "127.0.0.1:8080".parse().unwrap(),
+        bind_addr: "127.0.0.1:18106".parse().unwrap(),
+        media_callback_bind: "127.0.0.1:18107".parse().unwrap(),
         database_url: "sqlite://unused".into(),
         jwt_secret: vec![9_u8; 32],
         credentials_key: [7_u8; 32],
-        runtime_directory: "/tmp/xcos-test".into(),
+
         development_mode: true,
         media_token_ttl: Duration::from_secs(120),
         mediamtx_api_url: "http://127.0.0.1:1".into(),
@@ -466,6 +467,7 @@ fn test_state(pool: sqlx::SqlitePool) -> AppState {
         reconcile_interval: Duration::from_secs(60),
         request_timeout: Duration::from_secs(2),
         static_dir: None,
+        trusted_proxies: Vec::new(),
     });
     let http = reqwest::Client::new();
     let (events, _) = tokio::sync::broadcast::channel(4);
@@ -1842,4 +1844,58 @@ async fn ptz_stop_prevents_lost_snapshot_move_from_reappearing() {
 #[tokio::test]
 async fn ptz_move_prevents_lost_snapshot_stop_from_reappearing() {
     assert_new_ptz_intent_supersedes_lost_response("stop", "move").await;
+}
+
+#[tokio::test]
+async fn router_uses_trusted_proxy_boundary_and_preserves_error_context() {
+    use axum::{extract::ConnectInfo, http::Request};
+    use tower::ServiceExt;
+    let directory = tempfile::tempdir().unwrap();
+    let pool = crate::sqlite::initialize_test_pool(&format!(
+        "sqlite://{}",
+        directory.path().join("proxy.sqlite3").display()
+    ))
+    .await
+    .unwrap();
+    let runtime =
+        xcss::server_runtime::ServerRuntime::builder(xcss::server_runtime::ProductDescriptor {
+            id: "xcos".into(),
+            version: env!("CARGO_PKG_VERSION").into(),
+            common_revision: env!("XCSS_REVISION").into(),
+            profile: "server-control-plane".into(),
+            capabilities: Vec::new(),
+        })
+        .build()
+        .await
+        .unwrap();
+    for trusted in [false, true] {
+        let mut state = test_state(pool.clone());
+        if trusted {
+            Arc::make_mut(&mut state.config).trusted_proxies = vec!["127.0.0.1".into()];
+        }
+        let app = router(state, runtime.handle()).unwrap();
+        let mut request = Request::builder()
+            .uri("/healthz")
+            .header("x-forwarded-for", "invalid-forwarded-address")
+            .body(Body::empty())
+            .unwrap();
+        request.extensions_mut().insert(ConnectInfo(
+            "127.0.0.1:12345".parse::<std::net::SocketAddr>().unwrap(),
+        ));
+        let response = app.oneshot(request).await.unwrap();
+        assert_eq!(
+            response.status(),
+            if trusted {
+                StatusCode::BAD_REQUEST
+            } else {
+                StatusCode::NO_CONTENT
+            }
+        );
+        assert_eq!(
+            response.headers()[xcss::server_cli::SERVICE_IDENTITY_HEADER],
+            "xcos"
+        );
+        assert!(response.headers().contains_key("x-request-id"));
+    }
+    pool.close().await;
 }
