@@ -71,14 +71,26 @@ try {
       const context = await browser.newContext({ locale: "zh-CN", timezoneId: "UTC", viewport: { width: 360, height: 740 } });
       const page = await context.newPage();
       await page.addInitScript(() => {
+        const nativeFetch = window.fetch.bind(window);
+        window.fetch = (input, init = {}) => {
+          const url = new URL(input instanceof Request ? input.url : String(input), location.href);
+          if (window.injectAuditFailureForClick && url.pathname === "/api/v1/audit") {
+            window.injectAuditFailureForClick = false;
+            const headers = new Headers(init.headers ?? (input instanceof Request ? input.headers : undefined));
+            headers.set("x-xcos-browser-audit-failure", "1");
+            return nativeFetch(input, { ...init, headers });
+          }
+          return nativeFetch(input, init);
+        };
         const NativeSource = window.EventSource;
         window.EventSource = class extends NativeSource {
           constructor(...args) { super(...args); window.activePaginationSource = this; }
         };
       });
       const errors = [], paths = [], ptz = [], eventQueries = [], logQueries = [], recordingPlaybackQueries = [], commandReceipts = new Map();
+      const auditFailureRequests = [];
       let historyResponseDelayMs = 0;
-      let acknowledged = false, failAudit = false, holdSystem = false, releaseSystem = null, serverToday = "2026-09-04", clients = [{ ...activeInstance }, { ...pendingInstance }], cameras = [camera];
+      let acknowledged = false, holdSystem = false, releaseSystem = null, serverToday = "2026-09-04", clients = [{ ...activeInstance }, { ...pendingInstance }], cameras = [camera];
       const boundedName = `\uFEFF${"x".repeat(63)}`;
       const expectedNames = ["Renamed instance", "\uFEFFRenamed instance\uFEFF", "Renamed instance", boundedName, "Renamed instance"];
       page.on("pageerror", error => errors.push(error.message));
@@ -151,7 +163,10 @@ try {
           return fulfillHistory(date === "2026-09-03" ? Array.from({ length: 160 }, (_, index) => ({ id: `past-operation-${index}`, camera_id: camera.id, generation: 1, kind: "reconcile_camera", state: "succeeded", reason: "camera.updated", requested_by: null, attempt: 1, max_attempts: 3, created_at: "2026-09-03T00:00:00Z", started_at: null, finished_at: null, retry_at: null, error_code: null, error_message: null })) : []);
         }
         if (path.endsWith("/audit")) {
-          if (failAudit) { failAudit = false; return route.fulfill({ status: 500, json: { code: "platform.internal", message: "SECRET database path", retryable: false, request_id: "audit-failure-123" } }); }
+          if (request.headers()["x-xcos-browser-audit-failure"] === "1") {
+            auditFailureRequests.push(request.url());
+            return route.fulfill({ status: 500, json: { code: "platform.internal", message: "SECRET database path", retryable: false, request_id: "audit-failure-123" } });
+          }
           const date = url.searchParams.get("date") ?? url.searchParams.get("start_date");
           logQueries.push({ path, search: url.search, date, end_date: url.searchParams.get("end_date"), limit: url.searchParams.get("limit"), offset: url.searchParams.get("offset") });
           return fulfillHistory(date === "2026-09-05" ? [] : date === "2026-09-03" ? Array.from({ length: 140 }, (_, index) => ({ id: `past-audit-${index}`, user_id: administratorId, action: "camera.updated", entity_type: "camera", entity_id: camera.id, details: { generation: 1, note: "x".repeat(60_000) }, created_at: "2026-09-03T00:00:00Z" })) : [{ id: "audit-1", user_id: administratorId, action: "camera.updated", entity_type: "camera", entity_id: camera.id, details: { generation: 1 }, created_at: time }]);
@@ -401,9 +416,19 @@ try {
       await expect(page.getByText("更新摄像头", { exact: true })).toBeVisible();
       await expect(page.getByText("暂无媒体协调操作", { exact: true })).toBeVisible();
       await expect(page.getByRole("table", { name: "系统状态", exact: true })).toHaveCount(0);
-      failAudit = true;
-      await page.getByRole("group", { name: "全局操作" }).getByRole("button", { name: "刷新", exact: true }).click();
+      // Reconnect/pagination behavior was checked above. Stop this finite fixture
+      // stream so a later successful background read cannot heal the manual error.
+      await page.evaluate(() => window.activePaginationSource.close());
+      const failingRefresh = page.getByRole("group", { name: "全局操作" }).getByRole("button", { name: "刷新", exact: true });
+      // A reconnect before this click must not consume the explicit request's
+      // failure. Arm only inside the target's real click, before React handles it.
+      await failingRefresh.evaluate(button => button.addEventListener("click", () => {
+        window.injectAuditFailureForClick = true;
+        setTimeout(() => { window.injectAuditFailureForClick = false; }, 0);
+      }, { capture: true, once: true }));
+      await failingRefresh.click();
       await expect(page.getByRole("alert")).toContainText("audit-failure-123");
+      assert.equal(auditFailureRequests.length, 1, "only the explicit refresh request receives the injected failure");
       await expect(page.locator("body")).not.toContainText("SECRET");
       await page.getByRole("alert").getByRole("button", { name: "重试" }).click();
       await expect(page.getByText("更新摄像头", { exact: true })).toBeVisible();
