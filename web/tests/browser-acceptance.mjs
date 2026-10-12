@@ -70,7 +70,14 @@ try {
     try {
       const context = await browser.newContext({ locale: "zh-CN", timezoneId: "UTC", viewport: { width: 360, height: 740 } });
       const page = await context.newPage();
+      await page.addInitScript(() => {
+        const NativeSource = window.EventSource;
+        window.EventSource = class extends NativeSource {
+          constructor(...args) { super(...args); window.activePaginationSource = this; }
+        };
+      });
       const errors = [], paths = [], ptz = [], eventQueries = [], logQueries = [], recordingPlaybackQueries = [], commandReceipts = new Map();
+      let historyResponseDelayMs = 0;
       let acknowledged = false, failAudit = false, holdSystem = false, releaseSystem = null, serverToday = "2026-09-04", clients = [{ ...activeInstance }, { ...pendingInstance }], cameras = [camera];
       const boundedName = `\uFEFF${"x".repeat(63)}`;
       const expectedNames = ["Renamed instance", "\uFEFFRenamed instance\uFEFF", "Renamed instance", boundedName, "Renamed instance"];
@@ -124,7 +131,8 @@ try {
         if (path.endsWith("/stream-ticket")) return route.fulfill({ status: 503, json: { code: "media.unavailable", message: "unavailable" } });
         if (path.endsWith("/cameras") && request.method() === "GET") return route.fulfill({ json: cameras });
         if (path.endsWith("/events/event-1/ack")) { acknowledged = true; return route.fulfill({ status: 204 }); }
-        const fulfillHistory = (rows) => {
+        const fulfillHistory = async (rows) => {
+          if (historyResponseDelayMs) await new Promise(resolve => setTimeout(resolve, historyResponseDelayMs));
           const start = Number(url.searchParams.get("cursor") ?? "0");
           const items = rows.slice(start, start + 100);
           return route.fulfill({ json: { format: "xcos-history-page-v1", items, next_cursor: start + items.length < rows.length ? String(start + items.length) : null } });
@@ -350,8 +358,19 @@ try {
         await expect(page.getByRole("table", { name: "监控事件" }).locator("tbody tr")).toHaveCount(100);
         await pager.getByRole("button", { name: "上一页" }).click();
         await expect(table.locator("tbody tr")).toHaveCount(100);
-        await pager.getByRole("button", { name: "下一页" }).click();
+        if (name === "媒体协调操作") {
+          historyResponseDelayMs = 350;
+          await page.evaluate(() => {
+            document.addEventListener("pointerdown", () => {
+              window.activePaginationSource.dispatchEvent(new Event("open"));
+            }, { once: true, capture: true });
+          });
+        }
+        // Stream reconnect between mouse down/up must not remove or disable
+        // this same pagination target before its click can request cursor=100.
+        await pager.getByRole("button", { name: "下一页" }).click({ delay: 150 });
         await expect(table.locator("tbody tr")).toHaveCount(remainder);
+        historyResponseDelayMs = 0;
         await pager.getByRole("button", { name: "首页" }).click();
         await expect(table.locator("tbody tr")).toHaveCount(100);
         const rectangles = await table.evaluate(element => ({ bottom: element.closest(".xcss-table-scroll").getBoundingClientRect().bottom }));

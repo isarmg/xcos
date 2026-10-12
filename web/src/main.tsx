@@ -90,11 +90,13 @@ function Console() {
     const next = await request("/cameras", isCameras);
     setCameras(next.map(camera => cameraSnapshot(camera, requestStartedAt)));
   }, []);
-  const loadLogs = useCallback(async (cursors: LogCursors = [null, null, null], history: LogCursorHistory = [[], [], []]) => {
+  const loadLogs = useCallback(async (cursors: LogCursors = [null, null, null], history: LogCursorHistory = [[], [], []], preserveVisiblePage = false) => {
     const generation = ++logRequestId.current;
     logAbortController.current?.abort();
     logAbortController.current = null;
-    setLoadedLogRange(null);
+    // A stream refresh of this same page must not unmount a pointer target
+    // between pointerdown and click. Explicit navigation still enters loading.
+    if (!preserveVisiblePage) setLoadedLogRange(null);
     setLogFailure(null);
     if (logRange === null) return;
     // Stream refreshes must retain pending navigation, not the last completed page.
@@ -120,7 +122,7 @@ function Console() {
       if (logAbortController.current === controller) logAbortController.current = null;
     }
   }, [logRange]);
-  refreshVisibleLogs.current = () => { if (view === "logs" && logRange && logFailure === null) void loadLogs(currentLogCursors.current, logCursorHistory.current); };
+  refreshVisibleLogs.current = () => { if (view === "logs" && logRange && logFailure === null) void loadLogs(currentLogCursors.current, logCursorHistory.current, true); };
   const logsReady = logRange !== null && loadedLogRange === logRange && logFailure === null;
   const navigateLogPage = (index: number, direction: "first" | "previous" | "next") => {
     if (!logsReady) return;

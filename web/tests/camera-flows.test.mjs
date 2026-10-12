@@ -347,6 +347,30 @@ function logConsole(t, responder, hash = "#logs") {
 }
 const historyPage = (id, next_cursor = null) => ({ format: "xcos-history-page-v1", items: [{ id }], next_cursor });
 
+test("stream refresh keeps visible pagination interactive and cannot overwrite subsequent navigation", async t => {
+  let response = () => historyPage("original", "next-page");
+  const logs = logConsole(t, path => response(path));
+  await logs.ready();
+  logs.nodes(node => node.type === "date-range")[0].props.onValidityChange(true);
+  logs.render();
+  const background = deferred();
+  response = () => background.promise;
+  logs.open();
+  const events = () => logs.nodes(node => typeof node.type === "function" && node.type.name === "EventsView")[0];
+  const navigation = () => logs.nodes(node => node.props["aria-label"] === "Event history pages")[0];
+  assert.equal(events().props.events[0].id, "original", "background refresh must retain the current table");
+  const next = walk(navigation(), node => node.type === "button" && textContent(node) === "Next page")[0];
+  assert.equal(next.props.disabled, false, "stream refresh must not swallow an in-progress pointer click");
+  response = () => historyPage("next-page-result");
+  next.props.onClick();
+  await logs.ready();
+  assert.ok(logs.calls.slice(-3)[0].path.includes("cursor=next-page"));
+  assert.equal(events().props.events[0].id, "next-page-result");
+  background.resolve(historyPage("stale-background"));
+  await logs.ready();
+  assert.equal(events().props.events[0].id, "next-page-result", "late background response must not replace the destination");
+});
+
 test("ordinary event-stream reconnect reloads visible history missed during disconnect", async t => {
   let revision = 1;
   const logs = logConsole(t, () => historyPage(`revision-${revision}`));
