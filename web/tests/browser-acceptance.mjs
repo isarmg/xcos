@@ -276,7 +276,7 @@ try {
       await playbackVideo.evaluate(video => { window.previousRecordingVideo = video; });
       cameras = [{ ...camera, name: "验收摄像头（已刷新）" }];
       await page.getByRole("banner").getByRole("button", { name: "刷新", exact: true }).click();
-      await expect(page.getByRole("combobox", { name: "摄像头", exact: true })).toHaveText("验收摄像头（已刷新）");
+      await expect(page.getByRole("combobox", { name: "摄像头", exact: true }).locator('.xcss-select-value')).toHaveText("验收摄像头（已刷新）");
       await expect(playbackVideo).toHaveAttribute("src", selectedSource);
       assert.equal(await playbackVideo.evaluate(video => video === window.previousRecordingVideo), true, "snapshot refresh preserves the media node");
       clients.push({ ...activeInstance, id: secondId, name: "第二摄像机实例" });
@@ -286,7 +286,9 @@ try {
       await instanceTable.getByRole("link", { name: "选择实例 第二摄像机实例", exact: true }).click();
       await expect(page.getByRole("region", { name: "配对账户信息" })).toContainText("第二摄像机实例");
       const recordingCamera = page.getByRole("combobox", { name: "摄像头", exact: true });
-      await expect(recordingCamera).toHaveValue(secondId);
+      const recordingCameraField = page.locator('.filter-panel select');
+      await expect(recordingCamera.locator('.xcss-select-value')).toHaveText("第二摄像头");
+      await expect(recordingCameraField).toHaveValue(secondId);
       await page.getByRole("button", { name: "查询录像", exact: true }).click();
       await page.locator(".record-item").click();
       await expect(playbackVideo).toHaveAttribute("src", new RegExp(`camera_id=${secondId}`));
@@ -305,7 +307,8 @@ try {
       cameras = [camera];
       await page.getByRole("banner").getByRole("button", { name: "刷新", exact: true }).click();
       await expect(page.getByRole("region", { name: "配对账户信息" })).toContainText("Renamed instance");
-      await expect(recordingCamera).toHaveValue(activeId);
+      await expect(recordingCamera.locator('.xcss-select-value')).toHaveText("验收摄像头");
+      await expect(recordingCameraField).toHaveValue(activeId);
       await expect(playbackVideo).not.toHaveAttribute("src");
       await expect(page.locator(".record-item")).toHaveCount(0);
       assert.deepEqual(await page.evaluate(() => {
