@@ -40,19 +40,21 @@ test("recordings distinguish initial, loading, failed, retry, and empty results"
   rows()[0].props.onClick();
   assert.match(video().props.src, /2026-10-01/);
   const playingKey = video().key;
-  assert.equal(playingKey, video().props.src);
   const refresh = deferred();
   globalThis.probeRequest = () => refresh.promise;
   search();
   assert.equal(rows().length, 0, "a repeated query clears the previous result immediately");
   assert.equal(video().props.src, undefined);
   assert.notEqual(video().key, playingKey, "clearing playback replaces the media element, not just its src attribute");
+  const clearedKey = video().key;
   refresh.resolve([segment]);
   await settle();
   rows()[0].props.onClick();
-  assert.equal(video().key, playingKey, "selecting the same recording after reset mounts its media element again");
+  assert.match(video().props.src, /2026-10-01/, "selecting the same recording after reset restores its media source");
+  assert.notEqual(video().key, clearedKey, "selecting after reset mounts its media element again");
+  const resumedKey = video().key;
   range("02");
-  assert.notEqual(video().key, playingKey, "editing dates unmounts the active recording");
+  assert.notEqual(video().key, resumedKey, "editing dates unmounts the active recording");
   const failed = deferred();
   globalThis.probeRequest = () => failed.promise;
   search();
@@ -68,6 +70,31 @@ test("recordings distinguish initial, loading, failed, retry, and empty results"
   await settle();
   assert.equal(nodes(node => node.type === "error").length, 0);
   assert.match(textContent(host.render()), /No recordings in the selected range/);
+});
+
+test("playing the same recording again restarts its media element without another search", async t => {
+  const { host, search, rows, video } = recordings(t);
+  let searches = 0;
+  const other = { start: "2026-10-01T13:00:00Z", duration: 120 };
+  globalThis.probeRequest = async () => { searches += 1; return [segment, other]; };
+  search();
+  await settle();
+  rows()[0].props.onClick();
+  const source = video().props.src;
+  let previousKey = video().key;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    rows()[0].props.onClick();
+    assert.notEqual(video().key, previousKey, "Play must restart even an already selected or ended segment");
+    assert.equal(video().props.src, source);
+    assert.equal(video().props.autoPlay, true);
+    previousKey = video().key;
+  }
+  host.props = { ...host.props, cameras: host.props.cameras.map(camera => ({ ...camera, name: `${camera.name} refreshed` })) };
+  assert.equal(video().key, previousKey, "background snapshots must not restart playback");
+  rows()[1].props.onClick();
+  assert.notEqual(video().key, previousKey);
+  assert.equal(new URL(video().props.src, "https://camera.example").searchParams.get("start"), other.start);
+  assert.equal(searches, 1);
 });
 
 test("invalid or reversed recording dates fail locally and allow a retry", async t => {
