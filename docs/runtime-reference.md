@@ -78,19 +78,20 @@ MediaMTX 由 `flock --no-fork` 持有 companion lock。维护工具必须按data
 
 管理页的录像摄像头选择限定为当前实例的服务器录像设备。实例或设备列表变化时，当前选择会指向仍可用的摄像头；重新查询录像后，播放选择会清空，避免把上一查询的片段显示为本次结果。
 
-管理页“日志”使用服务器操作系统的本地日期。打开页面时从受保护的 `GET /api/v1/logs/calendar`
-取得服务器当天；单日查询使用 `date=YYYY-MM-DD`，范围查询使用 `start_date=YYYY-MM-DD&end_date=YYYY-MM-DD`，
+管理页“日志”使用 UTC 日历日期。打开页面时从受保护的 `GET /api/v1/logs/calendar`
+取得 UTC 当天；单日查询使用 `date=YYYY-MM-DD`，范围查询使用 `start_date=YYYY-MM-DD&end_date=YYYY-MM-DD`，
 包含起止当天且不与 `date` 混用。事件、媒体协调操作和业务审计每页最多 100 条，
 返回 `next_cursor`，游标绑定日期范围和记录类型；同一时间戳以记录 ID 排序，不遗漏后续页。
 页面保留当前页及已访问的游标栈，支持首页、上一页和下一页；上一页不是服务端 `previous_cursor` 字段。每组响应上限 8 MiB，服务端响应等待最多 5 秒；每条历史 SQLite 连接最多等待 2 秒，查询执行在 3 秒进度截止时中断。全局最多 4 个查询，连接及响应 body 结束前持续占用名额，至少 6 个连接留给命令及状态。
 
 新历史写入和媒体操作在同一写事务中检查持久预算：所有事件、审计、操作和 outbox 合计最多 100 万行，每摄像头最多 10 万行且记录内容、索引元数据计费与回执预留最多 2 GiB，数据库、WAL 与已接受操作后续回执/审计预留合计最多 8 GiB；新增操作还要求可用空间保留 1 GiB 加预留量。达到任一边界时返回明确的 `history_storage_capacity`，不接受新操作、不删除已有事实。已有警报确认、PTZ 回执、操作完成及人工结果确认使用预留空间继续处理。容量上限是拒绝条件，不是实测性能保证，也不等同于真实磁盘已满。
-服务端按该日期的本地起点到次日本地起点
-换算为 UTC 半开区间，夏令时切换日也按实际时长处理。日志行显示服务器当地时间及该条记录
-对应的 UTC 偏移；日期归属以记录创建时间为准。服务端时区配置或系统时钟变化后，刷新日志页
-可取得新的服务器当天。`GET /api/v1/events` 保留实时监控快照用途，日志读取使用
+服务端按所选 UTC 日期的午夜到次日 UTC 午夜建立半开区间，每天固定 24 小时。
+日志行使用带 `Z` 标识的 UTC 时间；日期归属以记录创建时间为准。刷新日志页可取得新的 UTC 当天。`GET /api/v1/events` 保留实时监控快照用途，日志读取使用
 `GET /api/v1/events/logs`。需要核对较早创建的 Unknown/Failed 媒体操作时，选择其创建日期；
 媒体调和与状态判断直接读取持久化状态，不以当前日志筛选结果为依据。
+
+录像查询的开始、结束输入均为 UTC；页面显示的时间明确标注 UTC。API 继续接受带偏移的
+RFC3339 绝对时间并归一到 UTC，既有录像和日志的时间点不会因显示方式调整而移动。
 
 ## 管理员接口
 
@@ -113,3 +114,8 @@ auth body、媒体 JWT、WHEP/HLS 播放与录像状态不使用 Administrator u
 ## 公共接口标识
 
 当前版本只使用 `.state-instance.lock`、`.state-maintenance.lock`、`.state-maintenance-pending.json` 和 `.state-atomic-` 临时文件前缀。服务身份头为 `x-service`，健康状态中的公共源码修订字段为 `common_revision`。管理会话采用 `__Host-admin-xcos-session`，显式开发模式采用 `admin-xcos-session`；生产 Cookie 的 Secure、HttpOnly、SameSite、Path 和 CSRF 约束继续生效。资源清单格式为 `web-assets-v1`，公共数据库内部表及索引采用 `_common_` 前缀。
+
+## 实例撤销与删除
+
+`DELETE /api/v1/clients/{id}` 只撤销凭据及摄像机并排队清理媒体路径，已撤销实例重复调用返回 204，保留实例信息。
+`DELETE /api/v1/clients/{id}/delete` 独立执行永久删除：未撤销返回 409；每台摄像机须有当前代际的成功移除确认且没有仍存在的媒体路径。删除成功和已不存在均返回 204。

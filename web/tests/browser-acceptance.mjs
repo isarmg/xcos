@@ -7,7 +7,6 @@ import AxeBuilder from "@axe-core/playwright";
 import { preview } from "vite";
 
 const time = "2026-09-04T00:00:00Z";
-const serverTime = "2026-09-04 08:00:00 +08:00";
 async function assertLogControlsLayout(page) {
   const viewport = page.viewportSize();
   await expect(page.getByRole("table", { name: "监控事件", exact: true })).toBeVisible();
@@ -69,7 +68,7 @@ try {
   for (const engine of [chromium, firefox]) {
     const browser = await engine.launch();
     try {
-      const context = await browser.newContext({ locale: "zh-CN", timezoneId: "America/Los_Angeles", viewport: { width: 360, height: 740 } });
+      const context = await browser.newContext({ locale: "zh-CN", timezoneId: "UTC", viewport: { width: 360, height: 740 } });
       const page = await context.newPage();
       const errors = [], paths = [], ptz = [], eventQueries = [], logQueries = [], commandReceipts = new Map();
       let acknowledged = false, failAudit = false, holdSystem = false, releaseSystem = null, serverToday = "2026-09-04", clients = [{ ...activeInstance }, { ...pendingInstance }], cameras = [camera];
@@ -100,9 +99,14 @@ try {
           target.name = name;
           return route.fulfill({ json: target });
         }
+        if (path.endsWith(`/clients/${pendingId}/delete`) && request.method() === "DELETE") {
+          assert.equal(clients.find(value => value.id === pendingId)?.status, "revoked");
+          clients = clients.filter(value => value.id !== pendingId);
+          return route.fulfill({ status: 204 });
+        }
         if (path.endsWith(`/clients/${pendingId}`) && request.method() === "DELETE") {
           const target = clients.find(value => value.id === pendingId);
-          if (target?.status === "revoked") clients = clients.filter(value => value.id !== pendingId); else target.status = "revoked";
+          if (target) target.status = "revoked";
           return route.fulfill({ status: 204 });
         }
         if (path.endsWith("/ptz")) {
@@ -130,19 +134,19 @@ try {
           logQueries.push({ path, search: url.search, date, end_date: url.searchParams.get("end_date"), limit: url.searchParams.get("limit"), offset: url.searchParams.get("offset") });
           eventQueries.push(unacknowledged);
           if (date === "2026-09-05") return fulfillHistory([]);
-          if (date === "2026-09-03") return fulfillHistory(Array.from({ length: 220 }, (_, index) => ({ id: `past-event-${index}`, camera_id: camera.id, kind: "camera.status", severity: "info", message: "验收事件", acknowledged_at: null, created_at: "2026-09-02T16:00:00Z", server_created_at: "2026-09-03 00:00:00 +08:00" })));
-          return fulfillHistory([{ id: "event-1", camera_id: camera.id, kind: "camera.status", severity: "info", message: "验收事件", acknowledged_at: acknowledged ? time : null, created_at: time, server_created_at: serverTime }]);
+          if (date === "2026-09-03") return fulfillHistory(Array.from({ length: 220 }, (_, index) => ({ id: `past-event-${index}`, camera_id: camera.id, kind: "camera.status", severity: "info", message: "验收事件", acknowledged_at: null, created_at: "2026-09-03T00:00:00Z" })));
+          return fulfillHistory([{ id: "event-1", camera_id: camera.id, kind: "camera.status", severity: "info", message: "验收事件", acknowledged_at: acknowledged ? time : null, created_at: time }]);
         }
         if (path.endsWith("/media/operations")) {
           const date = url.searchParams.get("date") ?? url.searchParams.get("start_date");
           logQueries.push({ path, search: url.search, date, end_date: url.searchParams.get("end_date"), limit: url.searchParams.get("limit"), offset: url.searchParams.get("offset") });
-          return fulfillHistory(date === "2026-09-03" ? Array.from({ length: 160 }, (_, index) => ({ id: `past-operation-${index}`, camera_id: camera.id, generation: 1, kind: "reconcile_camera", state: "succeeded", reason: "camera.updated", requested_by: null, attempt: 1, max_attempts: 3, created_at: "2026-09-02T16:00:00Z", server_created_at: "2026-09-03 00:00:00 +08:00", started_at: null, finished_at: null, retry_at: null, error_code: null, error_message: null })) : []);
+          return fulfillHistory(date === "2026-09-03" ? Array.from({ length: 160 }, (_, index) => ({ id: `past-operation-${index}`, camera_id: camera.id, generation: 1, kind: "reconcile_camera", state: "succeeded", reason: "camera.updated", requested_by: null, attempt: 1, max_attempts: 3, created_at: "2026-09-03T00:00:00Z", started_at: null, finished_at: null, retry_at: null, error_code: null, error_message: null })) : []);
         }
         if (path.endsWith("/audit")) {
           if (failAudit) { failAudit = false; return route.fulfill({ status: 500, json: { code: "platform.internal", message: "SECRET database path", retryable: false, request_id: "audit-failure-123" } }); }
           const date = url.searchParams.get("date") ?? url.searchParams.get("start_date");
           logQueries.push({ path, search: url.search, date, end_date: url.searchParams.get("end_date"), limit: url.searchParams.get("limit"), offset: url.searchParams.get("offset") });
-          return fulfillHistory(date === "2026-09-05" ? [] : date === "2026-09-03" ? Array.from({ length: 140 }, (_, index) => ({ id: `past-audit-${index}`, user_id: administratorId, action: "camera.updated", entity_type: "camera", entity_id: camera.id, details: { generation: 1, note: "x".repeat(60_000) }, created_at: "2026-09-02T16:00:00Z", server_created_at: "2026-09-03 00:00:00 +08:00" })) : [{ id: "audit-1", user_id: administratorId, action: "camera.updated", entity_type: "camera", entity_id: camera.id, details: { generation: 1 }, created_at: time, server_created_at: serverTime }]);
+          return fulfillHistory(date === "2026-09-05" ? [] : date === "2026-09-03" ? Array.from({ length: 140 }, (_, index) => ({ id: `past-audit-${index}`, user_id: administratorId, action: "camera.updated", entity_type: "camera", entity_id: camera.id, details: { generation: 1, note: "x".repeat(60_000) }, created_at: "2026-09-03T00:00:00Z" })) : [{ id: "audit-1", user_id: administratorId, action: "camera.updated", entity_type: "camera", entity_id: camera.id, details: { generation: 1 }, created_at: time }]);
         }
         if (path.endsWith("/recordings")) { assert.equal(url.searchParams.get("camera_id"), camera.id); return route.fulfill({ json: [{ start: time, duration: 60 }] }); }
         throw new Error(`Unexpected API request ${request.method()} ${path}`);
@@ -192,10 +196,10 @@ try {
       await page.getByRole("button", { name: "确认", exact: true }).click();
       await expect(page.getByRole("cell", { name: "已撤销", exact: true })).toBeVisible();
       const pendingRow = instanceTable.locator("tbody tr").filter({ hasText: pendingInstance.name });
-      await pendingRow.getByRole("button", { name: "删除", exact: true }).click();
+      await pendingRow.getByRole("button", { name: "永久删除", exact: true }).click();
       await pendingRow.getByRole("button", { name: "取消", exact: true }).click();
       await expect(pendingRow.getByRole("button", { name: "确认删除", exact: true })).toHaveCount(0);
-      await pendingRow.getByRole("button", { name: "删除", exact: true }).click();
+      await pendingRow.getByRole("button", { name: "永久删除", exact: true }).click();
       await pendingRow.getByRole("button", { name: "确认删除", exact: true }).click();
       await expect(instanceTable.locator("tbody tr")).toHaveCount(1);
       await expect(page.getByRole("main").getByRole("button", { name: "新建实例", exact: true })).toHaveCount(0);
@@ -266,7 +270,7 @@ try {
       await serverDatePicker.expectValue("2026-09-04");
       await assertLogControlsLayout(page);
       await expect(page.getByRole("table", { name: "监控事件" }).locator("tbody tr")).toHaveCount(1);
-      await expect(page.getByText(serverTime, { exact: true }).first()).toBeVisible();
+      await expect(page.getByText(time, { exact: true }).first()).toBeVisible();
       await serverDatePicker.fill("2026-09-03");
       await expect(page.getByRole("table", { name: "监控事件" }).locator("tbody tr")).toHaveCount(100);
       await page.getByRole("navigation", { name: "监控事件分页" }).getByRole("button", { name: "下一页" }).click();

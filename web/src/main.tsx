@@ -40,7 +40,7 @@ import {
   type AuditRow,
   type Camera as CameraResponse,
   type MonitorEvent,
-  type LoggedMediaOperation,
+  type MediaOperation,
   type RecordingSpan,
   type XcosClient,
   type SystemStatus,
@@ -64,7 +64,7 @@ function Console() {
   const [audit, setAudit] = useState<AuditRow[]>([]);
   const [clients, setClients] = useState<XcosClient[]>([]);
   const [systemStatus, setSystemStatus] = useState<SystemStatus | null>(null);
-  const [operations, setOperations] = useState<LoggedMediaOperation[]>([]);
+  const [operations, setOperations] = useState<MediaOperation[]>([]);
   const snapshotLoaders = useRef<Array<() => Promise<void>>>([]);
   const [refreshSnapshot] = useState(() => createSnapshotRefresh(() => snapshotLoaders.current));
   const [logFailure, setLogFailure] = useState<{ requestId?: string } | null>(null);
@@ -260,7 +260,7 @@ function Console() {
       <section className="xcss-content-panel xcss-content-stack" aria-label={t("日志筛选", "Log filters")}>
         <p>{t("实例：{0}", "Instance: {0}", [t("全部实例", "All instances")])}</p>
         <div className="xcss-log-date-controls">
-          <label htmlFor="xcos-log-date-start-year">{t("日志日期范围（服务器时区）", "Log date range (server time zone)")}</label>
+          <label htmlFor="xcos-log-date-start-year">{t("日志日期范围（UTC）", "Log date range (UTC)")}</label>
           <div className="xcss-actions"><Button disabled={!logRange || !logDraftValid || (logFailure === null && !logsReady)} onClick={() => void loadLogs()}>{t("刷新日志", "Refresh logs")}</Button></div>
           <DateRangeField id="xcos-log-date" disabled={logRange === null && logFailure === null} value={logRange} onValidityChange={setLogDraftValid} onApply={range => { setLogRange(range); setLogFailure(null); }} />
         </div>
@@ -420,22 +420,31 @@ function ClientsView({ clients, cameras, changed, toast, select }: {
       toast(t("实例密码已更换；原客户端必须使用新密码重新配对", "Instance password changed; the old client must pair again with the new password"), "success");
     } finally { setPending(false); }
   };
-  const remove = async (client: XcosClient) => {
+  const revoke = async (client: XcosClient) => {
     setPending(true);
     try {
       await request(`/clients/${client.id}`, (value): value is undefined => value === undefined, { method: "DELETE" });
       await changed();
-      toast(client.status === "revoked" ? t("实例已删除", "Instance deleted") : t("实例已取消或撤销，可再次删除其信息", "Instance cancelled or revoked; delete it again to remove its entry"), "success");
+      toast(t("实例已撤销；媒体路径清理完成后，可单独确认永久删除", "Instance revoked; after media-path cleanup, confirm permanent deletion separately"), "success");
+    } finally { setPending(false); }
+  };
+  const remove = async (client: XcosClient) => {
+    if (client.status !== "revoked") return;
+    setPending(true);
+    try {
+      await request(`/clients/${client.id}/delete`, (value): value is undefined => value === undefined, { method: "DELETE" });
+      await changed();
+      toast(t("实例已永久删除", "Instance permanently deleted"), "success");
     } finally { setPending(false); }
   };
   const cameraByInstance = new Map(cameras.filter(camera => camera.client_id !== null).map(camera => [camera.client_id, camera]));
   return <div className="xcss-content-stack">
     {deleteFailure && <ErrorState requestId={deleteFailure.requestId}>{t("删除未能确认，请刷新实例列表核对。", "Deletion could not be confirmed. Refresh and check the instance list.")}</ErrorState>}
     <Table aria-label={t("摄像机实例列表", "Camera instance list")}><thead><tr><th>{t("实例名称", "Instance name")}</th><th>{t("配对状态", "Pairing status")}</th><th>{t("摄像机状态", "Camera status")}</th><th>{t("厂商 / 型号", "Make / model")}</th><th>{t("操作", "Actions")}</th><th>{t("删除", "Delete")}</th></tr></thead><tbody>
-      {clients.length === 0 ? <tr><td colSpan={6} className="empty-state">{t("尚无摄像机实例", "No camera instances")}</td></tr> : clients.map(client => { const camera = cameraByInstance.get(client.id); return <tr key={client.id}><th scope="row"><a className="xcss-instance-link" aria-label={t("选择实例 {0}", "Select instance {0}", [client.name])} href="#details" onClick={() => select(client.id)}>{client.name}</a></th><td>{displayLabel(client.status)}</td><td>{camera ? <CameraStatus camera={camera} /> : t("尚未上报", "Not yet reported")}</td><td>{camera ? [camera.manufacturer, camera.model].filter(Boolean).join(" / ") || camera.adapter_kind.toUpperCase() : "—"}</td><td><div className="xcss-actions">{client.status !== "revoked" && <><Button disabled={pending} onClick={() => setRotating(client)}>{t("更换密码", "Change password")}</Button><Button disabled={pending} onClick={() => setRemoving(client)}>{client.status === "pending" ? t("取消配对", "Cancel pairing") : t("撤销实例", "Revoke instance")}</Button></>}</div></td><td><div className="xcss-actions">{deleteCandidate === client.id ? <><Button disabled={pending} onClick={() => setDeleteCandidate(null)}>{t("取消", "Cancel")}</Button><Button className="xcss-danger" disabled={pending} onClick={() => void remove(client).then(() => { setDeleteCandidate(null); setDeleteFailure(null); }).catch(error => setDeleteFailure({ requestId: errorRequestId(error) }))}>{pending ? t("正在删除…", "Deleting…") : t("确认删除", "Confirm delete")}</Button></> : <Button disabled={pending} onClick={() => { setDeleteFailure(null); setDeleteCandidate(client.id); }}>{t("删除", "Delete")}</Button>}</div></td></tr>; })}
+      {clients.length === 0 ? <tr><td colSpan={6} className="empty-state">{t("尚无摄像机实例", "No camera instances")}</td></tr> : clients.map(client => { const camera = cameraByInstance.get(client.id); return <tr key={client.id}><th scope="row"><a className="xcss-instance-link" aria-label={t("选择实例 {0}", "Select instance {0}", [client.name])} href="#details" onClick={() => select(client.id)}>{client.name}</a></th><td>{displayLabel(client.status)}</td><td>{camera ? <CameraStatus camera={camera} /> : t("尚未上报", "Not yet reported")}</td><td>{camera ? [camera.manufacturer, camera.model].filter(Boolean).join(" / ") || camera.adapter_kind.toUpperCase() : "—"}</td><td><div className="xcss-actions">{client.status !== "revoked" && <><Button disabled={pending} onClick={() => setRotating(client)}>{t("更换密码", "Change password")}</Button><Button disabled={pending} onClick={() => setRemoving(client)}>{client.status === "pending" ? t("取消配对", "Cancel pairing") : t("撤销实例", "Revoke instance")}</Button></>}</div></td><td><div className="xcss-actions">{deleteCandidate === client.id ? <><Button disabled={pending} onClick={() => setDeleteCandidate(null)}>{t("取消", "Cancel")}</Button><Button className="xcss-danger" disabled={pending} onClick={() => void remove(client).then(() => { setDeleteCandidate(null); setDeleteFailure(null); }).catch(error => setDeleteFailure({ requestId: errorRequestId(error) }))}>{pending ? t("正在删除…", "Deleting…") : t("确认删除", "Confirm delete")}</Button></> : <Button disabled={pending || client.status !== "revoked"} title={client.status === "revoked" ? t("媒体路径清理确认完成后永久删除", "Permanently delete after media-path cleanup is confirmed") : t("请先撤销实例，再确认永久删除", "Revoke the instance before confirming permanent deletion")} onClick={() => { if (client.status === "revoked") { setDeleteFailure(null); setDeleteCandidate(client.id); } }}>{t("永久删除", "Permanently delete")}</Button>}</div></td></tr>; })}
     </tbody></Table>
     {rotating && <ConfirmDangerDialog title={t("更换密码", "Change password")} description={t("这会立即撤销当前客户端凭据并停用它管理的摄像头。客户端必须使用新密码重新配对并重新上报摄像头。", "This immediately revokes the current client credential and disables its cameras. The client must pair again with the new password and report its cameras again.")} pending={pending} onClose={() => { if (!pending) setRotating(null); }} onConfirm={() => { const target = rotating; setRotating(null); void rotate(target).catch(error => toast(errorText(error), "error")); }} />}
-    {removing && <ConfirmDangerDialog title={removing.status === "revoked" ? t("删除实例", "Delete instance") : removing.status === "pending" ? t("取消配对", "Cancel pairing") : t("撤销实例", "Revoke instance")} description={removing.status === "revoked" ? t("媒体路径清理确认完成后，永久删除该摄像机状态和授权实例；若清理尚未收敛，服务端会拒绝并要求稍后重试。", "Permanently delete the camera state and authorization instance after media-path removal is confirmed. If cleanup has not converged, the server rejects the request and asks you to retry later.") : t("当前密码和客户端凭据将失效；服务端会先清理媒体路径，完成后可再永久删除该实例。", "The password and client credential will be invalidated. The server first removes media paths; after cleanup, the instance can be permanently deleted.")} pending={pending} onClose={() => { if (!pending) setRemoving(null); }} onConfirm={() => { const target = removing; setRemoving(null); void remove(target).catch(error => toast(errorText(error), "error")); }} />}
+    {removing && <ConfirmDangerDialog title={removing.status === "pending" ? t("取消配对", "Cancel pairing") : t("撤销实例", "Revoke instance")} description={t("当前密码和客户端凭据将失效；重复撤销不会删除实例信息。媒体路径清理完成后，需单独确认永久删除。", "The password and client credential will be invalidated. Repeating revocation preserves the instance entry. After media-path cleanup, permanent deletion requires a separate confirmation.")} pending={pending} onClose={() => { if (!pending) setRemoving(null); }} onConfirm={() => { const target = removing; setRemoving(null); void revoke(target).catch(error => toast(errorText(error), "error")); }} />}
   </div>;
 }
 
@@ -467,7 +476,7 @@ function ClientSettings({ client, changed, toast }: { client: XcosClient; change
   const nameValid = validInstanceName(normalizedName);
   useEffect(() => { setName(client.name); setFailure(null); }, [client.id, client.name]);
   async function saveName() {
-    if (pending || !nameValid || normalizedName === client.name) return;
+    if (client.status === "revoked" || pending || !nameValid || normalizedName === client.name) return;
     setPending(true); setFailure(null);
     try {
       await request(`/clients/${client.id}`, isXcosClient, { method: "PATCH", body: JSON.stringify({ name: normalizedName }) });
@@ -478,18 +487,19 @@ function ClientSettings({ client, changed, toast }: { client: XcosClient; change
   }
   return <section className="xcss-content-panel" aria-label={t("实例设置", "Instance settings")}><h2>{t("实例设置", "Instance settings")}</h2>
       <form onSubmit={event => { event.preventDefault(); void saveName(); }} aria-busy={pending}>
-        <FormField label={t("实例名称", "Instance name")}><TextField name="name" value={name} onChange={event => setName(event.target.value)} required readOnly={pending} /></FormField>
+        <FormField label={t("实例名称", "Instance name")}><TextField name="name" value={name} onChange={event => setName(event.target.value)} required readOnly={pending || client.status === "revoked"} /></FormField>
+        {client.status === "revoked" && <p>{t("已撤销实例不能更改名称；媒体路径清理完成后可永久删除。", "A revoked instance cannot be renamed; it can be permanently deleted after media-path cleanup.")}</p>}
         {!nameValid && <p role="alert">{t("名称须为 1–64 个字符，不能包含控制字符。", "Use 1–64 characters without control characters.")}</p>}
         {failure && <ErrorState requestId={failure.requestId}>{t("实例名称未能保存，请重试。", "The instance name could not be saved. Please retry.")}</ErrorState>}
-        <div className="xcss-actions"><Button type="submit" disabled={pending || !nameValid || normalizedName === client.name}>{pending ? t("正在保存…", "Saving…") : t("保存名称", "Save name")}</Button></div>
+        <div className="xcss-actions"><Button type="submit" disabled={client.status === "revoked" || pending || !nameValid || normalizedName === client.name}>{pending ? t("正在保存…", "Saving…") : t("保存名称", "Save name")}</Button></div>
       </form>
     </section>;
 }
 
 function RecordingsView({ cameras, toast }: { cameras: Camera[]; toast(message: string, type?: string): void }) {
   const [cameraId, setCameraId] = useState(cameras[0]?.id ?? "");
-  const [start, setStart] = useState(() => localDateInput(new Date(Date.now() - 86_400_000)));
-  const [end, setEnd] = useState(() => localDateInput(new Date()));
+  const [start, setStart] = useState(() => utcDateInput(new Date(Date.now() - 86_400_000)));
+  const [end, setEnd] = useState(() => utcDateInput(new Date()));
   const [spans, setSpans] = useState<RecordingSpan[]>([]);
   const [playing, setPlaying] = useState<RecordingSpan | null>(null);
   const [searchState, setSearchState] = useState<"idle" | "loading" | "ready" | "failed">("idle");
@@ -513,7 +523,7 @@ function RecordingsView({ cameras, toast }: { cameras: Camera[]; toast(message: 
     const currentSearch = () => selectedCamera.current === requestedCamera && searchGeneration.current === generation;
     setSpans([]); setPlaying(null); setSearchState("loading"); setSearchFailure(null);
     try {
-      const rangeStart = new Date(start), rangeEnd = new Date(end);
+      const rangeStart = new Date(`${start}Z`), rangeEnd = new Date(`${end}Z`);
       if (!Number.isFinite(rangeStart.getTime()) || !Number.isFinite(rangeEnd.getTime()) || rangeStart > rangeEnd) {
         throw new Error("Invalid recording time range");
       }
@@ -525,7 +535,7 @@ function RecordingsView({ cameras, toast }: { cameras: Camera[]; toast(message: 
     }
   };
   const playback = playing === null ? "" : apiPath(`/recordings/play?${new URLSearchParams({ camera_id: cameraId, start: playing.start, duration: String(playing.duration), format: "fmp4" })}`);
-  return <section className="view active xcss-content-stack"><div className="filter-panel xcss-content-panel"><label>{t("摄像头", "Camera")}<Select value={cameraId} onChange={(event) => setCameraId(event.target.value)}>{cameras.map((camera) => <option key={camera.id} value={camera.id}>{camera.name}</option>)}</Select></label><label>{t("开始时间", "Start time")}<TextField type="datetime-local" value={start} onChange={(event) => setStart(event.target.value)} /></label><label>{t("结束时间", "End time")}<TextField type="datetime-local" value={end} onChange={(event) => setEnd(event.target.value)} /></label><Button className="button button-primary" onClick={() => void search()}>{t("查询录像", "Search recordings")}</Button></div><div className="recording-layout xcss-content-panel"><div><div className="section-heading"><h3>{t("录像时间段", "Recording segments")}</h3><span>{spans.length} {t("条", "segments")}</span></div><div className="record-list">{searchState === "loading" ? <LoadingState>{t("正在查询录像…", "Loading recordings…")}</LoadingState> : searchState === "failed" ? <ErrorState requestId={searchFailure?.requestId}>{t("录像未能加载，请检查时间范围后重新查询。", "Recordings could not be loaded. Check the time range and search again.")}</ErrorState> : searchState === "idle" ? <EmptyState>{t("选择时间范围后查询录像。", "Choose a time range and search for recordings.")}</EmptyState> : spans.length === 0 ? <EmptyState>{t("所选范围内没有录像", "No recordings in the selected range")}</EmptyState> : spans.map((span) => <Button key={`${span.start}-${span.duration}`} className="record-item" onClick={() => setPlaying(span)}><span>{formatDate(span.start)}</span><strong>{formatDuration(span.duration)}</strong><i>{t("播放", "Play")}</i></Button>)}</div></div><div className="playback-stage"><video key={playback} src={playback || undefined} controls playsInline autoPlay /><div>{playing === null ? t("尚未选择录像", "No recording selected") : `${formatDate(playing.start)} · ${formatDuration(playing.duration)}`}</div></div></div></section>;
+  return <section className="view active xcss-content-stack"><div className="filter-panel xcss-content-panel"><label>{t("摄像头", "Camera")}<Select value={cameraId} onChange={(event) => setCameraId(event.target.value)}>{cameras.map((camera) => <option key={camera.id} value={camera.id}>{camera.name}</option>)}</Select></label><label>{t("开始时间（UTC）", "Start time (UTC)")}<TextField type="datetime-local" value={start} onChange={(event) => setStart(event.target.value)} /></label><label>{t("结束时间（UTC）", "End time (UTC)")}<TextField type="datetime-local" value={end} onChange={(event) => setEnd(event.target.value)} /></label><Button className="button button-primary" onClick={() => void search()}>{t("查询录像", "Search recordings")}</Button></div><div className="recording-layout xcss-content-panel"><div><div className="section-heading"><h3>{t("录像时间段", "Recording segments")}</h3><span>{spans.length} {t("条", "segments")}</span></div><div className="record-list">{searchState === "loading" ? <LoadingState>{t("正在查询录像…", "Loading recordings…")}</LoadingState> : searchState === "failed" ? <ErrorState requestId={searchFailure?.requestId}>{t("录像未能加载，请检查时间范围后重新查询。", "Recordings could not be loaded. Check the time range and search again.")}</ErrorState> : searchState === "idle" ? <EmptyState>{t("选择时间范围后查询录像。", "Choose a time range and search for recordings.")}</EmptyState> : spans.length === 0 ? <EmptyState>{t("所选范围内没有录像", "No recordings in the selected range")}</EmptyState> : spans.map((span) => <Button key={`${span.start}-${span.duration}`} className="record-item" onClick={() => setPlaying(span)}><span>{formatDate(span.start)}</span><strong>{formatDuration(span.duration)}</strong><i>{t("播放", "Play")}</i></Button>)}</div></div><div className="playback-stage"><video key={playback} src={playback || undefined} controls playsInline autoPlay /><div>{playing === null ? t("尚未选择录像", "No recording selected") : `${formatDate(playing.start)} · ${formatDuration(playing.duration)}`}</div></div></div></section>;
 }
 
 function EventsView({ events, cameras, acknowledge }: { events: MonitorEvent[]; cameras: Camera[]; acknowledge(id: string): void }) {
@@ -533,7 +543,7 @@ function EventsView({ events, cameras, acknowledge }: { events: MonitorEvent[]; 
   return events.length === 0 ? <EmptyState>{t("没有事件", "No events")}</EmptyState> : <Table className="xcos-log-table" aria-label={t("监控事件", "Monitoring events")}>
     <caption>{t("监控事件", "Monitoring events")}</caption>
     <thead><tr><th>{t("服务器时间", "Server time")}</th><th>{t("等级", "Severity")}</th><th>{t("事件", "Event")}</th><th>{t("摄像头", "Camera")}</th><th>{t("状态", "Status")}</th></tr></thead>
-    <tbody>{events.map(event => <tr key={event.id}><td><time>{event.server_created_at}</time></td><td>{severityLabel(event.severity)}</td><td>{displayLabel(event.kind)}</td><td>{event.camera_id === null ? t("系统", "System") : names.get(event.camera_id) ?? t("系统", "System")}</td><td>{event.acknowledged_at === null ? <div className="xcss-actions"><Button onClick={() => acknowledge(event.id)}>{t("确认", "Acknowledge")}</Button></div> : t("已确认", "Acknowledged")}</td></tr>)}</tbody>
+    <tbody>{events.map(event => <tr key={event.id}><td><time>{event.created_at}</time></td><td>{severityLabel(event.severity)}</td><td>{displayLabel(event.kind)}</td><td>{event.camera_id === null ? t("系统", "System") : names.get(event.camera_id) ?? t("系统", "System")}</td><td>{event.acknowledged_at === null ? <div className="xcss-actions"><Button onClick={() => acknowledge(event.id)}>{t("确认", "Acknowledge")}</Button></div> : t("已确认", "Acknowledged")}</td></tr>)}</tbody>
   </Table>;
 }
 
@@ -541,13 +551,13 @@ function AuditLogView({ audit }: { audit: AuditRow[] }) {
   return audit.length === 0 ? <EmptyState>{t("暂无审计日志", "No audit logs yet")}</EmptyState> : <Table className="xcos-log-table" aria-label={t("审计日志", "Audit logs")}>
     <caption>{t("审计日志", "Audit logs")}</caption>
     <thead><tr><th>{t("服务器时间", "Server time")}</th><th>{t("操作", "Action")}</th><th>{t("操作者", "Actor")}</th><th>{t("对象", "Entity")}</th><th>{t("详情", "Details")}</th></tr></thead>
-    <tbody>{audit.map(row => <tr key={row.id}><td><time>{row.server_created_at}</time></td><td>{displayLabel(row.action)}</td><td><code>{row.user_id ?? t("系统", "System")}</code></td><td>{displayLabel(row.entity_type)}{row.entity_id !== null && <> / <code>{row.entity_id}</code></>}</td><td><details><summary>{t("详情", "Details")}</summary><code>{safeAuditDetails(row.details)}</code></details></td></tr>)}</tbody>
+    <tbody>{audit.map(row => <tr key={row.id}><td><time>{row.created_at}</time></td><td>{displayLabel(row.action)}</td><td><code>{row.user_id ?? t("系统", "System")}</code></td><td>{displayLabel(row.entity_type)}{row.entity_id !== null && <> / <code>{row.entity_id}</code></>}</td><td><details><summary>{t("详情", "Details")}</summary><code>{safeAuditDetails(row.details)}</code></details></td></tr>)}</tbody>
   </Table>;
 }
 
-function MediaOperationsView({ operations, cameras, changed, toast }: { operations: LoggedMediaOperation[]; cameras: Camera[]; changed(): Promise<void>; toast(message: string, type?: string): void }) {
+function MediaOperationsView({ operations, cameras, changed, toast }: { operations: MediaOperation[]; cameras: Camera[]; changed(): Promise<void>; toast(message: string, type?: string): void }) {
   const [pending, setPending] = useState(false);
-  const [resolution, setResolution] = useState<{ operation: LoggedMediaOperation; value: "confirmed_succeeded" | "confirmed_failed" | "unable_to_confirm"; label: string } | null>(null);
+  const [resolution, setResolution] = useState<{ operation: MediaOperation; value: "confirmed_succeeded" | "confirmed_failed" | "unable_to_confirm"; label: string } | null>(null);
   const names = new Map(cameras.map(camera => [camera.id, camera.name]));
   const resolve = async (target: NonNullable<typeof resolution>) => {
     setPending(true);
@@ -566,7 +576,7 @@ function MediaOperationsView({ operations, cameras, changed, toast }: { operatio
     {operations.length === 0 ? <EmptyState>{t("暂无媒体协调操作", "No media reconciliation operations")}</EmptyState> : <Table className="xcos-log-table" aria-label={t("媒体协调操作", "Media reconciliation operations")}>
     <caption>{t("媒体协调操作", "Media reconciliation operations")}</caption>
       <thead><tr><th>{t("服务器时间", "Server time")}</th><th>{t("摄像头", "Camera")}</th><th>{t("状态", "Status")}</th><th>{t("详情", "Details")}</th></tr></thead>
-      <tbody>{operations.map(operation => <tr key={operation.id}><td><time>{operation.server_created_at}</time></td><td>{names.get(operation.camera_id) ?? operation.camera_id}</td><td>{displayLabel(operation.state)}</td><td><details><summary>{t("详情", "Details")}</summary><dl className="xcos-detail-list"><dt>{t("操作标识", "Operation ID")}</dt><dd><code>{operation.id}</code></dd><dt>{t("原因", "Reason")}</dt><dd>{displayLabel(operation.reason)}</dd><dt>{t("代际 / 尝试", "Generation / attempts")}</dt><dd>{operation.generation} / {operation.attempt} of {operation.max_attempts}</dd><dt>{t("错误", "Error")}</dt><dd>{operation.error_code ?? "—"}</dd></dl>
+      <tbody>{operations.map(operation => <tr key={operation.id}><td><time>{operation.created_at}</time></td><td>{names.get(operation.camera_id) ?? operation.camera_id}</td><td>{displayLabel(operation.state)}</td><td><details><summary>{t("详情", "Details")}</summary><dl className="xcos-detail-list"><dt>{t("操作标识", "Operation ID")}</dt><dd><code>{operation.id}</code></dd><dt>{t("原因", "Reason")}</dt><dd>{displayLabel(operation.reason)}</dd><dt>{t("代际 / 尝试", "Generation / attempts")}</dt><dd>{operation.generation} / {operation.attempt} of {operation.max_attempts}</dd><dt>{t("错误", "Error")}</dt><dd>{operation.error_code ?? "—"}</dd></dl>
         {(["unknown", "failed", "dead_letter"].includes(operation.state)) && <div className="xcss-actions">{choices.map(([value, label]) => <Button key={value} disabled={pending} onClick={() => setResolution({ operation, value, label })}>{label}</Button>)}</div>}
       </details></td></tr>)}</tbody>
     </Table>}
@@ -698,13 +708,13 @@ const capabilityLabels = (camera: Camera) => ([
 ] as const).map(([name, label]) => camera.capabilities[name] === "supported" ? label
   : camera.capabilities[name] === "unknown" ? t("{0}：未确认", "{0}: unconfirmed", [label])
   : t("{0}：不支持", "{0}: unsupported", [label]));
-const dateFormatter = new Intl.DateTimeFormat(getLocale(), { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+const dateFormatter = new Intl.DateTimeFormat(getLocale(), { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23", timeZone: "UTC" });
 const formatDate = (value: string) => {
   const date = new Date(value);
-  return Number.isFinite(date.getTime()) ? dateFormatter.format(date) : t("未知", "Unknown");
+  return Number.isFinite(date.getTime()) ? `${dateFormatter.format(date)} UTC` : t("未知", "Unknown");
 };
 const formatDuration = (seconds: number) => { const total = Math.round(seconds); const hours = Math.floor(total / 3600); const minutes = Math.floor((total % 3600) / 60); return [hours > 0 ? t("{0}时", "{0}h", [hours]) : "", minutes > 0 ? t("{0}分", "{0}m", [minutes]) : "", t("{0}秒", "{0}s", [total % 60]) ].filter(Boolean).join(getLocale() === "en" ? " " : ""); };
-const localDateInput = (date: Date) => new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+const utcDateInput = (date: Date) => date.toISOString().slice(0, 16);
 const errorText = (error: unknown) => { const id = errorRequestId(error); return id ? t("请求失败，请重试。请求标识： {0}", "Request failed. Please retry. Request ID: {0}", [id]) : t("请求失败，请重试。", "Request failed. Please retry."); };
 function currentView(): View {
   const hash = window.location.hash.slice(1);

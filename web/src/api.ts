@@ -82,8 +82,6 @@ export type MediaOperation = {
   error_message: string | null;
 };
 
-export type LoggedMediaOperation = MediaOperation & { server_created_at: string };
-
 export type StreamTicket = {
   profile: string;
   whep_url: string;
@@ -102,7 +100,6 @@ export type MonitorEvent = {
   message: string;
   acknowledged_at: string | null;
   created_at: string;
-  server_created_at: string;
 };
 
 export type AuditRow = {
@@ -113,7 +110,6 @@ export type AuditRow = {
   entity_id: string | null;
   details: Record<string, unknown>;
   created_at: string;
-  server_created_at: string;
 };
 
 export type LogCalendar = { today: string };
@@ -239,8 +235,7 @@ export const isOperation: JsonGuard<MediaOperation> = (
     "error_code",
     "error_message",
   ].every((key) => isNullableString(value[key]));
-export const isOperations = arrayOf((value): value is LoggedMediaOperation =>
-  isOperation(value) && "server_created_at" in value && isString(value.server_created_at));
+export const isOperations = arrayOf(isOperation);
 
 export const isLogCalendar: JsonGuard<LogCalendar> = (value): value is LogCalendar =>
   isRecord(value) && isString(value.today) && /^\d{4}-\d{2}-\d{2}$/.test(value.today);
@@ -268,15 +263,13 @@ const isMonitorEvent: JsonGuard<MonitorEvent> = (
   ) &&
   isNullableString(value.camera_id) &&
   isNullableString(value.acknowledged_at) &&
-  isString(value.server_created_at) &&
   ["info", "warning", "critical"].includes(value.severity as string);
 export const isMonitorEvents = arrayOf(isMonitorEvent);
 
 const isAuditRow: JsonGuard<AuditRow> = (value): value is AuditRow =>
   isRecord(value) &&
   ["id", "action", "entity_type", "created_at"].every((key) => isString(value[key])) &&
-  isNullableString(value.user_id) && isNullableString(value.entity_id) && isRecord(value.details) &&
-  isString(value.server_created_at);
+  isNullableString(value.user_id) && isNullableString(value.entity_id) && isRecord(value.details);
 export const isAuditRows = arrayOf(isAuditRow);
 const logPage = <T>(rows: JsonGuard<T[]>): JsonGuard<LogPage<T>> =>
   (value): value is LogPage<T> => isRecord(value) && value.format === "xcos-history-page-v1" && rows(value.items)

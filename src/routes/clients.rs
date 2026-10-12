@@ -332,17 +332,7 @@ pub(super) async fn revoke_client(
         return Err(AppError::NotFound("客户端不存在".into()));
     };
     if status == "revoked" {
-        purge_revoked_client_in(&mut transaction, id).await?;
-        write_audit_in(
-            &mut transaction,
-            Some(&user.id),
-            "client.delete",
-            "client",
-            Some(id),
-            json!({}),
-        )
-        .await?;
-        transaction.commit().await?;
+        transaction.rollback().await?;
         return Ok(StatusCode::NO_CONTENT);
     }
     let changed = sqlx::query(
@@ -400,6 +390,37 @@ pub(super) async fn revoke_client(
     .await?;
     transaction.commit().await?;
     state.reconcile_notify.notify_one();
+    Ok(StatusCode::NO_CONTENT)
+}
+
+pub(super) async fn delete_client(
+    user: CurrentUser,
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> Result<StatusCode> {
+    let mut transaction = state.pool.begin_with("BEGIN IMMEDIATE").await?;
+    let status: Option<String> = sqlx::query_scalar("SELECT status FROM xcocs WHERE id = ?")
+        .bind(id)
+        .fetch_optional(&mut *transaction)
+        .await?;
+    let Some(status) = status else {
+        transaction.rollback().await?;
+        return Ok(StatusCode::NO_CONTENT);
+    };
+    if status != "revoked" {
+        return Err(AppError::Conflict("请先撤销实例，再确认永久删除".into()));
+    }
+    purge_revoked_client_in(&mut transaction, id).await?;
+    write_audit_in(
+        &mut transaction,
+        Some(&user.id),
+        "client.delete",
+        "client",
+        Some(id),
+        json!({}),
+    )
+    .await?;
+    transaction.commit().await?;
     Ok(StatusCode::NO_CONTENT)
 }
 

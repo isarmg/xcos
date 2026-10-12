@@ -109,7 +109,7 @@ xcss 提供管理员创建、凭据管理与停用能力。摄像头 RTSP/ONVIF 
 | SEN-K-005 | 摄像机 RTSP/ONVIF 地址和设备账号只保留在 Client；Server Schema 不存在这些列 | `cameras`、Client LocalState | 保障 | 高 | Server 数据库会暴露摄像机内网和设备 Secret | Schema 列清单、管理 JSON 均无 URL/密码 |
 | SEN-K-006 | Client 快照最多一台摄像机，非空时摄像机 ID 等于授权实例 ID；空快照移除该实例原有摄像机 | `client_snapshot`、edge v1 | 保障 | 高 | 一个授权码可越权覆盖其他摄像机 | 0 台移除正例；2 台、错 ID、重复 ID 拒绝 |
 | SEN-K-007 | 启动与 doctor 认证全部持久授权码 envelope | `doctor::verify_credentials`、`SecretBox` | 保障 | 高 | 错 key 或坏密文直到配对管理时才暴露 | 任一授权码篡改使检查失败且不改库 |
-| SEN-K-008 | 撤销实例会停用并隐藏摄像机、排队清理 MediaMTX；清理确认后可永久删除摄像机和授权实例 | `revoke_client`、media reconciliation | 保障 | 高 | 外键使已撤销实例永久无法删除，或媒体路径残留 | 未清理时冲突；成功清理后二次删除成功 |
+| SEN-K-008 | 撤销实例会停用并隐藏摄像机、排队清理 MediaMTX；清理确认后可永久删除摄像机和授权实例 | `revoke_client`、media reconciliation | 保障 | 高 | 外键使已撤销实例永久无法删除，或媒体路径残留 | 未清理时冲突；撤销重试保留实例；成功清理后独立永久删除成功 |
 | SEN-K-009 | PTZ 只接受 move/stop，pan/tilt/zoom 各在 `[-1,1]`，并作为短时命令发送到拥有该摄像机的 Client | `PtzRequest`、`device_commands`、`routes::ptz` | 可选 | 中 | 删除后仍可监看但不能从控制台云台控制 | 边界值、离线、无能力、命令到期 |
 
 ## 6. 期望态、持久操作与协调器

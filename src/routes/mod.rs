@@ -23,7 +23,7 @@ use axum::{
     Json, Router,
 };
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
-use chrono::{DateTime, Local, NaiveDate, TimeZone, Utc};
+use chrono::{DateTime, NaiveDate, TimeZone, Utc};
 use futures_util::Stream;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -87,6 +87,7 @@ pub fn router(state: AppState, runtime: xcss::server_runtime::RuntimeHandle) -> 
             "/clients/{id}",
             patch(update_client_name).delete(revoke_client),
         )
+        .route("/clients/{id}/delete", axum::routing::delete(delete_client))
         .route("/client/pair", post(pair_client))
         .route("/client/snapshot", put(client_snapshot))
         .route("/recordings", get(list_recordings))

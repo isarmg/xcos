@@ -37,18 +37,9 @@ pub(super) async fn list_media_operations(
             LOG_PAGE_SIZE + 1,
         )
         .await?;
-        Ok(log_page(
-            operations
-                .into_iter()
-                .map(|operation| {
-                    let created_at = operation.created_at;
-                    ServerDated::new(operation, created_at)
-                })
-                .collect::<Vec<_>>(),
-            &scope,
-            "operations",
-            |row| Uuid::parse_str(&row.record.id).expect("stored operation identity is validated"),
-        ))
+        Ok(log_page(operations, &scope, "operations", |row| {
+            Uuid::parse_str(&row.id).expect("stored operation identity is validated")
+        }))
     })
     .await
 }

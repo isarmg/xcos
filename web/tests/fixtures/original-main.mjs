@@ -4,11 +4,12 @@ import {fileURLToPath} from 'node:url';
 import {transformWithOxc} from 'vite';
 const entry=new URL('../../src/main.tsx',import.meta.url);
 const original=await readFile(entry,'utf8');
-const source=original+'\nexport { Console, RecordingsView, CameraDrawer, CameraStatus, LiveVideo, localDateInput, formatDate };';
+const source=original+'\nexport { Console, ClientsView, ClientSettings, RecordingsView, CameraDrawer, CameraStatus, LiveVideo, utcDateInput, formatDate };';
 const {code}=await transformWithOxc(source,fileURLToPath(entry),{jsx:{runtime:'automatic'}});
 const host=new URL('./hook-host.mjs',import.meta.url).href;
 const stubs={
  '@xcss/web/web-fonts':'export function startAfterFonts() {}',
+ '@xcss/web/admin-ui/server-corners':'export function startServerCorners() {}',
  '@xcss/web/admin-ui/date-range':'export const DateRangeField="date-range"',
  '@xcss/web/admin-ui/i18n':'export function t(zh,en,args=[]){return en.replace(/\\{(\\d+)\\}/g,(_,n)=>args[n])}; export const getLocale=()=>"en";',
  'react-dom/client':'export const createRoot=()=>({render(){}});',

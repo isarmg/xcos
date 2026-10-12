@@ -129,22 +129,18 @@ async fn history_admission_is_held_until_body_drop_and_cancelled_query_completio
 }
 
 #[test]
-fn server_day_uses_each_local_midnight_across_clock_changes() {
-    for value in ["2026-03-08", "2026-11-01"] {
+fn server_days_are_midnight_utc_and_exactly_twenty_four_hours() {
+    for value in ["2024-02-29", "2026-01-01", "2026-12-31"] {
         let (start, end) = server_day_bounds(value).unwrap();
         let selected = NaiveDate::parse_from_str(value, "%Y-%m-%d").unwrap();
-        assert_eq!(start.with_timezone(&Local).date_naive(), selected);
+        assert_eq!(start.date_naive(), selected);
+        assert_eq!(end.date_naive(), selected.succ_opt().unwrap());
+        assert_eq!((end - start).num_seconds(), 86_400);
+        assert_eq!(start.format("%H:%M:%S").to_string(), "00:00:00");
         assert_eq!(
-            end.with_timezone(&Local).date_naive(),
-            selected.succ_opt().unwrap()
+            serde_json::to_value(start).unwrap().as_str().unwrap(),
+            format!("{value}T00:00:00Z")
         );
-        assert!(end > start);
-    }
-    if std::env::var("TZ").as_deref() == Ok("America/New_York") {
-        let (spring_start, spring_end) = server_day_bounds("2026-03-08").unwrap();
-        let (fall_start, fall_end) = server_day_bounds("2026-11-01").unwrap();
-        assert_eq!((spring_end - spring_start).num_hours(), 23);
-        assert_eq!((fall_end - fall_start).num_hours(), 25);
     }
 }
 
@@ -1280,6 +1276,134 @@ async fn client_camera_snapshot_upsert_is_exact_and_preserves_soft_deleted_owner
 }
 
 #[tokio::test]
+async fn revoke_request_retry_preserves_instances_and_explicit_delete_retains_cleanup_guards() {
+    use tower::ServiceExt as _;
+    let directory = tempfile::tempdir().unwrap();
+    let pool = crate::sqlite::initialize_test_pool(&format!(
+        "sqlite://{}",
+        directory.path().join("revoke-retry.sqlite3").display()
+    ))
+    .await
+    .unwrap();
+    sqlx::query("INSERT INTO _common_administrators(administrator_id,username,password_hash,created_at_micros,updated_at_micros) VALUES('revoke-test','revoke-test','fixture',0,0)").execute(&pool).await.unwrap();
+    // Keep the real handlers, extractors and SQLite transactions. Authentication
+    // has separate contract coverage; this fixture supplies the authenticated user.
+    let app = Router::new()
+        .route(
+            "/clients/{id}",
+            axum::routing::delete(|state: State<AppState>, path: Path<Uuid>| async move {
+                revoke_client(
+                    CurrentUser {
+                        id: "revoke-test".into(),
+                    },
+                    state,
+                    path,
+                )
+                .await
+            }),
+        )
+        .route(
+            "/clients/{id}/delete",
+            axum::routing::delete(|state: State<AppState>, path: Path<Uuid>| async move {
+                delete_client(
+                    CurrentUser {
+                        id: "revoke-test".into(),
+                    },
+                    state,
+                    path,
+                )
+                .await
+            }),
+        )
+        .with_state(test_state(pool.clone()));
+    for with_camera in [false, true] {
+        let id = Uuid::new_v4();
+        insert_test_client(
+            &pool,
+            id,
+            if with_camera {
+                "with-camera"
+            } else {
+                "no-camera"
+            },
+        )
+        .await;
+        if with_camera {
+            assert_eq!(
+                upsert_test_camera(&pool, id, id, "retained-camera").await,
+                1
+            );
+        }
+        let send = |suffix: &str| {
+            axum::http::Request::builder()
+                .method("DELETE")
+                .uri(format!("/clients/{id}{suffix}"))
+                .body(Body::empty())
+                .unwrap()
+        };
+        assert_eq!(
+            app.clone().oneshot(send("/delete")).await.unwrap().status(),
+            StatusCode::CONFLICT
+        );
+        // Simulate a committed response that the caller never receives.
+        drop(app.clone().oneshot(send("")).await.unwrap());
+        assert_eq!(
+            app.clone().oneshot(send("")).await.unwrap().status(),
+            StatusCode::NO_CONTENT
+        );
+        let status: String = sqlx::query_scalar("SELECT status FROM xcocs WHERE id=?")
+            .bind(id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(status, "revoked");
+        let revokes: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM audit_logs WHERE action='client.revoke' AND entity_id=?",
+        )
+        .bind(id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            revokes, 1,
+            "a retry must not record another revoke or delete"
+        );
+        if with_camera {
+            assert_eq!(
+                app.clone().oneshot(send("/delete")).await.unwrap().status(),
+                StatusCode::CONFLICT
+            );
+            let retained: i64 =
+                sqlx::query_scalar("SELECT count(*) FROM cameras WHERE client_id=?")
+                    .bind(id)
+                    .fetch_one(&pool)
+                    .await
+                    .unwrap();
+            assert_eq!(
+                retained, 1,
+                "unconfirmed media cleanup blocks permanent deletion"
+            );
+        } else {
+            assert_eq!(
+                app.clone().oneshot(send("/delete")).await.unwrap().status(),
+                StatusCode::NO_CONTENT
+            );
+            assert_eq!(
+                app.clone().oneshot(send("/delete")).await.unwrap().status(),
+                StatusCode::NO_CONTENT
+            );
+            let retained: i64 = sqlx::query_scalar("SELECT count(*) FROM xcocs WHERE id=?")
+                .bind(id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+            assert_eq!(retained, 0);
+        }
+    }
+    pool.close().await;
+}
+
+#[tokio::test]
 async fn revoked_paired_instance_is_deleted_only_after_media_removal_succeeds() {
     let directory = tempfile::tempdir().unwrap();
     let database = directory.path().join("delete.sqlite3");
@@ -1440,14 +1564,8 @@ fn log_ranges_validate_dates_and_bind_both_endpoints_to_cursors() {
     }
     let (start, end, scope) =
         server_log_range(None, Some("2022-02-01"), Some("2023-02-02")).unwrap();
-    assert_eq!(
-        start.with_timezone(&Local).format("%Y-%m-%d").to_string(),
-        "2022-02-01"
-    );
-    assert_eq!(
-        end.with_timezone(&Local).format("%Y-%m-%d").to_string(),
-        "2023-02-03"
-    );
+    assert_eq!(start.format("%Y-%m-%d").to_string(), "2022-02-01");
+    assert_eq!(end.format("%Y-%m-%d").to_string(), "2023-02-03");
     let page = log_page(
         (0..=LOG_PAGE_SIZE).map(|_| Uuid::new_v4()).collect(),
         &scope,

@@ -175,37 +175,11 @@ pub(super) async fn dated_cursor(
     Ok(Some((timestamp, id)))
 }
 
-#[derive(Serialize)]
-pub(super) struct ServerDated<T: Serialize> {
-    #[serde(flatten)]
-    pub(super) record: T,
-    pub(super) server_created_at: String,
-}
-
-impl<T: Serialize> ServerDated<T> {
-    pub(super) fn new(record: T, created_at: DateTime<Utc>) -> Self {
-        Self {
-            record,
-            server_created_at: created_at
-                .with_timezone(&Local)
-                .format("%Y-%m-%d %H:%M:%S %:z")
-                .to_string(),
-        }
-    }
-}
-
-pub(super) fn local_day_start(date: NaiveDate) -> Result<DateTime<Local>> {
-    // A local midnight can be skipped or repeated when the server clock changes.
-    // Pick the first existing instant in that calendar day.
-    for minute in 0..24 * 60 {
-        let local = date
-            .and_hms_opt(minute / 60, minute % 60, 0)
-            .ok_or_else(|| AppError::Validation("无效的服务器日期".into()))?;
-        if let Some(start) = Local.from_local_datetime(&local).earliest() {
-            return Ok(start);
-        }
-    }
-    Err(AppError::Validation("该日期在服务器时区中不存在".into()))
+pub(super) fn utc_day_start(date: NaiveDate) -> Result<DateTime<Utc>> {
+    let midnight = date
+        .and_hms_opt(0, 0, 0)
+        .ok_or_else(|| AppError::Validation("无效的 UTC 日期".into()))?;
+    Ok(Utc.from_utc_datetime(&midnight))
 }
 
 pub(super) fn server_day_bounds(value: &str) -> Result<(DateTime<Utc>, DateTime<Utc>)> {
@@ -228,10 +202,7 @@ pub(super) fn server_day_bounds(value: &str) -> Result<(DateTime<Utc>, DateTime<
     let next = date
         .succ_opt()
         .ok_or_else(|| AppError::Validation("日期超出有效范围".into()))?;
-    Ok((
-        local_day_start(date)?.with_timezone(&Utc),
-        local_day_start(next)?.with_timezone(&Utc),
-    ))
+    Ok((utc_day_start(date)?, utc_day_start(next)?))
 }
 
 pub(super) fn server_log_range(
@@ -258,7 +229,7 @@ pub(super) fn server_log_range(
 }
 
 pub(super) async fn log_calendar(_user: CurrentUser) -> Json<Value> {
-    Json(json!({ "today": Local::now().date_naive().format("%Y-%m-%d").to_string() }))
+    Json(json!({ "today": Utc::now().date_naive().format("%Y-%m-%d").to_string() }))
 }
 pub(super) async fn list_events(
     _user: CurrentUser,
@@ -316,18 +287,7 @@ pub(super) async fn list_event_logs(
     let cursor = cursor_id(query.cursor.as_deref(), &scope, "events")?;
     history_response(state.scope.clone(), async move {
         let events = event_logs_for_day(&state.pool, start, end, cursor).await?;
-        Ok(log_page(
-            events
-                .into_iter()
-                .map(|event| {
-                    let created_at = event.created_at;
-                    ServerDated::new(event, created_at)
-                })
-                .collect::<Vec<_>>(),
-            &scope,
-            "events",
-            |row| row.record.id,
-        ))
+        Ok(log_page(events, &scope, "events", |row| row.id))
     })
     .await
 }
@@ -460,17 +420,7 @@ pub(super) async fn list_audit(
     let cursor = cursor_id(query.cursor.as_deref(), &scope, "audit")?;
     history_response(state.scope.clone(), async move {
         let rows = audit_logs_for_day(&state.pool, start, end, cursor).await?;
-        Ok(log_page(
-            rows.into_iter()
-                .map(|row| {
-                    let created_at = row.created_at;
-                    ServerDated::new(row, created_at)
-                })
-                .collect::<Vec<_>>(),
-            &scope,
-            "audit",
-            |row| row.record.id,
-        ))
+        Ok(log_page(rows, &scope, "audit", |row| row.id))
     })
     .await
 }

@@ -5,7 +5,7 @@ import test from "node:test";
 import { loadOriginalMain } from "./fixtures/original-main.mjs";
 import { HookHost, walk, textContent } from "./fixtures/hook-host.mjs";
 
-const { Console, RecordingsView, CameraDrawer, localDateInput } = await loadOriginalMain();
+const { Console, ClientsView, ClientSettings, RecordingsView, CameraDrawer, utcDateInput, formatDate } = await loadOriginalMain();
 const settle = () => new Promise(resolve => setImmediate(resolve));
 function deferred() {
   let resolve, reject;
@@ -133,10 +133,24 @@ test("switching recording camera clears playback and ignores its pending request
   assert.match(textContent(host.render()), /Choose a time range and search/);
 });
 
-test("recording local date inputs round-trip ordinary winter and summer instants", () => {
-  for (const iso of ["2026-01-15T12:34:00.000Z", "2026-07-15T12:34:00.000Z"]) {
-    assert.equal(new Date(localDateInput(new Date(iso))).toISOString(), iso);
+test("recording UTC date inputs preserve absolute instants", () => {
+  for (const iso of ["2024-02-29T23:59:00.000Z", "2026-01-01T00:01:00.000Z"]) {
+    assert.equal(new Date(`${utcDateInput(new Date(iso))}Z`).toISOString(), iso);
   }
+  assert.equal(formatDate("2026-10-08T16:00:00+08:00"), formatDate("2026-10-08T08:00:00Z"));
+  assert.match(formatDate("2026-10-08T08:00:00Z"), / UTC$/);
+});
+
+test("recording date fields submit UTC instants without changing the selected hour", async t => {
+  const { date, search } = recordings(t);
+  let requested;
+  globalThis.probeRequest = async path => { requested = new URL(path, "https://example.test"); return []; };
+  date(0, "2024-02-29T23:58");
+  date(1, "2024-03-01T00:01");
+  search();
+  await settle();
+  assert.equal(requested.searchParams.get("start"), "2024-02-29T23:58:00.000Z");
+  assert.equal(requested.searchParams.get("end"), "2024-03-01T00:01:00.000Z");
 });
 
 test("retrying a failed PTZ status read only repeats GET, never its physical command", async t => {
@@ -372,4 +386,51 @@ test("real date editor keeps invalid and unapplied drafts local while SSE refres
   assertCommittedLogRequests(requests(), before);
   apply(); await logs.ready();
   assert.ok(requests().slice(-3).every(path => path.endsWith("?start_date=2026-10-01&end_date=2026-10-03")));
+});
+
+
+test("instance cancellation retries use only revoke and permanent deletion has a separate confirmation", async t => {
+  const client = { id: "instance-a", name: "Camera A", status: "pending" };
+  const calls = [];
+  let serverStatus = "pending", changed = 0, lost = true;
+  globalThis.probeRequest = async (path, _guard, options) => {
+    calls.push({ path, method: options.method });
+    if (path.endsWith("/delete")) { assert.equal(serverStatus, "revoked"); serverStatus = "deleted"; }
+    else { serverStatus = "revoked"; if (lost) { lost = false; throw new Error("Response lost after commit"); } }
+  };
+  const host = new HookHost(ClientsView, { clients: [client], cameras: [], changed: async () => { changed += 1; }, toast() {}, select() {} });
+  t.after(() => host.unmount());
+  const button = label => walk(host.render(), node => node.type === "button" && textContent(node) === label)[0];
+  const confirm = () => walk(host.render(), node => node.type === "confirm")[0];
+  assert.equal(button("Permanently delete").props.disabled, true);
+  button("Cancel pairing").props.onClick(); confirm().props.onConfirm(); await settle();
+  assert.equal(serverStatus, "revoked");
+  // List is still stale after losing the response: repeating the same operation is safe.
+  button("Cancel pairing").props.onClick(); confirm().props.onConfirm(); await settle();
+  assert.deepEqual(calls.map(call => call.path), ["/clients/instance-a", "/clients/instance-a"]);
+  assert.equal(serverStatus, "revoked");
+  assert.equal(changed, 1);
+  host.props = { ...host.props, clients: [{ ...client, status: "revoked" }] };
+  assert.equal(button("Permanently delete").props.disabled, false);
+  button("Permanently delete").props.onClick();
+  assert.equal(calls.length, 2, "opening confirmation must not delete");
+  button("Confirm delete").props.onClick(); await settle();
+  assert.equal(serverStatus, "deleted");
+  assert.deepEqual(calls[2], { path: "/clients/instance-a/delete", method: "DELETE" });
+});
+
+test("revoked instance rename is explained and cannot send a PATCH even through form submission", async t => {
+  let calls = 0;
+  globalThis.probeRequest = async () => { calls += 1; };
+  const host = new HookHost(ClientSettings, { client: { id: "revoked-a", name: "Original", status: "revoked" }, changed: async () => {}, toast() {} });
+  t.after(() => host.unmount());
+  assert.match(textContent(host.render()), /revoked instance cannot be renamed/i);
+  const input = walk(host.render(), node => node.type === "input")[0];
+  assert.equal(input.props.readOnly, true);
+  input.props.onChange({ target: { value: "Changed" } });
+  const save = walk(host.render(), node => node.type === "button")[0];
+  assert.equal(save.props.disabled, true);
+  walk(host.render(), node => node.type === "form")[0].props.onSubmit({ preventDefault() {} });
+  await settle();
+  assert.equal(calls, 0);
 });
