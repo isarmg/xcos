@@ -44,7 +44,7 @@ try {
             // Stop event reconnects: the regression exercises the existing camera
             // snapshot across wall-clock changes rather than replacing it via SSE.
             if (path.endsWith("/events/stream")) return route.fulfill({ status: 204 });
-            if (path.endsWith("/system/status")) return route.fulfill({ json: { service: "xcos", version: "1.0.2", database: "ok", media_service: "ok", cameras: { recording_configured: 1 }, server_time: at } });
+            if (path.endsWith("/system/status")) return route.fulfill({ json: { service: "xcos", version: "1.0.3", database: "ok", media_service: "ok", cameras: { recording_configured: 1 }, server_time: at } });
             if (path.endsWith("/stream-ticket")) return route.fulfill({ status: 503, json: { code: "media.unavailable", message: "unavailable" } });
             throw new Error(`Unexpected API request ${route.request().method()} ${path}`);
           });

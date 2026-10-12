@@ -500,10 +500,18 @@ function RecordingsView({ cameras, toast }: { cameras: Camera[]; toast(message: 
   const [cameraId, setCameraId] = useState(cameras[0]?.id ?? "");
   const [start, setStart] = useState(() => utcDateInput(new Date(Date.now() - 86_400_000)));
   const [end, setEnd] = useState(() => utcDateInput(new Date()));
-  const [spans, setSpans] = useState<RecordingSpan[]>([]);
-  const [playing, setPlaying] = useState<RecordingSpan | null>(null);
-  const [searchState, setSearchState] = useState<"idle" | "loading" | "ready" | "failed">("idle");
+  const [resultSpans, setSpans] = useState<RecordingSpan[]>([]);
+  const [selectedSpan, setPlaying] = useState<RecordingSpan | null>(null);
+  const [resultState, setSearchState] = useState<"idle" | "loading" | "ready" | "failed">("idle");
+  const [resultQuery, setResultQuery] = useState<string | null>(null);
   const [searchFailure, setSearchFailure] = useState<{ requestId?: string } | null>(null);
+  const queryIdentity = JSON.stringify([cameraId, start, end]);
+  // Passive effects clear state after the DOM commit. Hide stale results during
+  // that first render so a previous span never becomes the new camera's src.
+  const resultCurrent = resultQuery === queryIdentity && cameras.some(camera => camera.id === cameraId);
+  const spans = resultCurrent ? resultSpans : [];
+  const playing = resultCurrent ? selectedSpan : null;
+  const searchState = resultCurrent ? resultState : "idle";
   const selectedCamera = useRef(cameraId);
   const searchGeneration = useRef(0);
   useEffect(() => {
@@ -521,6 +529,7 @@ function RecordingsView({ cameras, toast }: { cameras: Camera[]; toast(message: 
     const requestedCamera = cameraId;
     const generation = ++searchGeneration.current;
     const currentSearch = () => selectedCamera.current === requestedCamera && searchGeneration.current === generation;
+    setResultQuery(queryIdentity);
     setSpans([]); setPlaying(null); setSearchState("loading"); setSearchFailure(null);
     try {
       const rangeStart = new Date(`${start}Z`), rangeEnd = new Date(`${end}Z`);
