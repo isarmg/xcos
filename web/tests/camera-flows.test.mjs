@@ -547,3 +547,98 @@ test("revoked instance rename is explained and cannot send a PATCH even through 
   await settle();
   assert.equal(calls, 0);
 });
+
+function editableInstance(t, changed) {
+  const host = new HookHost(ClientSettings, { client: { id: "instance-a", name: "Original", status: "active" }, changed, toast() {} });
+  t.after(() => host.unmount());
+  const nodes = predicate => walk(host.render(), predicate);
+  const name = () => nodes(node => node.type === "input")[0];
+  const submit = () => nodes(node => node.type === "form")[0].props.onSubmit({ preventDefault() {} });
+  name().props.onChange({ target: { value: "Renamed" } });
+  return { host, nodes, name, submit };
+}
+
+test("instance name save failures preserve the draft and permit a successful retry", async t => {
+  let calls = 0, refreshes = 0;
+  const first = deferred();
+  globalThis.probeRequest = () => { calls += 1; return calls === 1 ? first.promise : Promise.resolve({}); };
+  const { host, nodes, name, submit } = editableInstance(t, async () => { refreshes += 1; });
+  submit();
+  assert.equal(name().props.readOnly, true);
+  submit();
+  assert.equal(calls, 1, "submitting a pending form does not repeat PATCH");
+  first.reject(new Error("Temporary write failure"));
+  await settle();
+  assert.match(textContent(host.render()), /name could not be saved/);
+  assert.equal(name().props.value, "Renamed");
+  assert.equal(name().props.readOnly, false);
+  assert.equal(refreshes, 0);
+  submit(); await settle();
+  assert.equal(calls, 2);
+  assert.equal(refreshes, 1);
+  assert.equal(nodes(node => node.type === "error").length, 0);
+});
+
+test("a saved instance name with a failed list refresh is reported accurately and retries only the read", async t => {
+  let writes = 0, refreshes = 0;
+  globalThis.probeRequest = async () => { writes += 1; return {}; };
+  const { host, nodes, name, submit } = editableInstance(t, async () => {
+    refreshes += 1;
+    if (refreshes < 3) throw new Error("Temporary list failure");
+  });
+  submit(); await settle();
+  assert.equal(writes, 1);
+  assert.match(textContent(host.render()), /name was saved, but the list could not be refreshed/);
+  assert.doesNotMatch(textContent(host.render()), /name could not be saved/);
+  assert.equal(name().props.value, "Renamed");
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    nodes(node => node.type === "button" && textContent(node) === "Retry refresh")[0].props.onClick();
+    await settle();
+  }
+  assert.equal(writes, 1, "refresh retry must not repeat a successful PATCH");
+  assert.equal(refreshes, 3);
+  assert.equal(nodes(node => node.type === "error").length, 0);
+});
+
+for (const newerName of ["Newer draft", "Original"]) test(`retrying a saved-name refresh preserves the newer draft ${newerName}`, async t => {
+  const names = [];
+  let refreshes = 0;
+  globalThis.probeRequest = async (_path, _guard, options) => { names.push(JSON.parse(options.body).name); return {}; };
+  const { host, nodes, name, submit } = editableInstance(t, async () => {
+    refreshes += 1;
+    if (refreshes === 1) throw new Error("Temporary list failure");
+    host.props = { ...host.props, client: { ...host.props.client, name: names.at(-1) } };
+  });
+  submit(); await settle();
+  name().props.onChange({ target: { value: newerName } });
+  nodes(node => node.type === "button" && textContent(node) === "Retry refresh")[0].props.onClick();
+  await settle();
+  assert.equal(host.props.client.name, "Renamed");
+  assert.equal(name().props.value, newerName, "the saved-name snapshot must not discard subsequent typing");
+  submit(); await settle();
+  assert.deepEqual(names, ["Renamed", newerName], "a genuinely newer draft can still be saved");
+});
+
+test("instance snapshots update an untouched name but preserve an edited name", t => {
+  const { host, name } = editableInstance(t, async () => {});
+  name().props.onChange({ target: { value: "Original" } });
+  host.props = { ...host.props, client: { ...host.props.client, name: "External change" } };
+  assert.equal(name().props.value, "External change");
+  name().props.onChange({ target: { value: "Local draft" } });
+  host.props = { ...host.props, client: { ...host.props.client, name: "Another external change" } };
+  assert.equal(name().props.value, "Local draft");
+});
+
+test("a saved name with stale list data can be reverted before the list refresh succeeds", async t => {
+  const names = [];
+  globalThis.probeRequest = async (_path, _guard, options) => { names.push(JSON.parse(options.body).name); return {}; };
+  const { nodes, name, submit } = editableInstance(t, async () => { throw new Error("List remains unavailable"); });
+  submit(); await settle();
+  assert.deepEqual(names, ["Renamed"]);
+  name().props.onChange({ target: { value: "Original" } });
+  assert.equal(nodes(node => node.type === "button" && node.props.type === "submit")[0].props.disabled, false);
+  submit(); await settle();
+  assert.deepEqual(names, ["Renamed", "Original"]);
+  assert.equal(nodes(node => node.type === "button" && node.props.type === "submit")[0].props.disabled, true,
+    "the newly confirmed saved value disables an unchanged save despite stale list data");
+});

@@ -470,18 +470,33 @@ function ClientDetails({ client, cameras }: { client: XcosClient; cameras: Camer
 
 function ClientSettings({ client, changed, toast }: { client: XcosClient; changed(): Promise<void>; toast(message: string, type?: string): void }) {
   const [name, setName] = useState(client.name);
+  const [syncedName, setSyncedName] = useState(client.name);
   const [pending, setPending] = useState(false);
-  const [failure, setFailure] = useState<{ requestId?: string } | null>(null);
+  const [failure, setFailure] = useState<{ requestId?: string; saved?: boolean } | null>(null);
   const normalizedName = trimInstanceName(name);
   const nameValid = validInstanceName(normalizedName);
-  useEffect(() => { setName(client.name); setFailure(null); }, [client.id, client.name]);
+  useEffect(() => {
+    const previous = syncedName;
+    setSyncedName(client.name);
+    setName(draft => draft === previous ? client.name : draft);
+    setFailure(null);
+  }, [client.id, client.name]);
+  async function refreshSavedName() {
+    setPending(true);
+    try {
+      await changed();
+      setFailure(null);
+      toast(t("实例名称已保存", "Instance name saved"), "success");
+    } catch (error) { setFailure({ requestId: errorRequestId(error), saved: true }); }
+    finally { setPending(false); }
+  }
   async function saveName() {
-    if (client.status === "revoked" || pending || !nameValid || normalizedName === client.name) return;
+    if (client.status === "revoked" || pending || !nameValid || normalizedName === trimInstanceName(syncedName)) return;
     setPending(true); setFailure(null);
     try {
       await request(`/clients/${client.id}`, isXcosClient, { method: "PATCH", body: JSON.stringify({ name: normalizedName }) });
-      await changed();
-      toast(t("实例名称已保存", "Instance name saved"), "success");
+      setSyncedName(name);
+      await refreshSavedName();
     } catch (error) { setFailure({ requestId: errorRequestId(error) }); }
     finally { setPending(false); }
   }
@@ -490,8 +505,8 @@ function ClientSettings({ client, changed, toast }: { client: XcosClient; change
         <FormField label={t("实例名称", "Instance name")}><TextField name="name" value={name} onChange={event => setName(event.target.value)} required readOnly={pending || client.status === "revoked"} /></FormField>
         {client.status === "revoked" && <p>{t("已撤销实例不能更改名称；媒体路径清理完成后可永久删除。", "A revoked instance cannot be renamed; it can be permanently deleted after media-path cleanup.")}</p>}
         {!nameValid && <p role="alert">{t("名称须为 1–64 个字符，不能包含控制字符。", "Use 1–64 characters without control characters.")}</p>}
-        {failure && <ErrorState requestId={failure.requestId}>{t("实例名称未能保存，请重试。", "The instance name could not be saved. Please retry.")}</ErrorState>}
-        <div className="xcss-actions"><Button type="submit" disabled={client.status === "revoked" || pending || !nameValid || normalizedName === client.name}>{pending ? t("正在保存…", "Saving…") : t("保存名称", "Save name")}</Button></div>
+        {failure && <ErrorState requestId={failure.requestId}>{failure.saved ? <>{t("实例名称已保存，但列表刷新失败。请重试刷新。", "The instance name was saved, but the list could not be refreshed. Please retry the refresh.")}<Button type="button" disabled={pending} onClick={() => void refreshSavedName()}>{t("重试刷新", "Retry refresh")}</Button></> : t("实例名称未能保存，请重试。", "The instance name could not be saved. Please retry.")}</ErrorState>}
+        <div className="xcss-actions"><Button type="submit" disabled={client.status === "revoked" || pending || !nameValid || normalizedName === trimInstanceName(syncedName)}>{pending ? t("正在保存…", "Saving…") : t("保存名称", "Save name")}</Button></div>
       </form>
     </section>;
 }
