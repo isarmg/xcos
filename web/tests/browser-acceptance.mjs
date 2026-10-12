@@ -260,11 +260,25 @@ try {
       await page.locator(".record-item").click();
       const playbackVideo = page.locator(".playback-stage video");
       const selectedSource = await playbackVideo.getAttribute("src");
+      // The synthetic media route has no playable bytes; mark lifecycle state
+      // directly and verify the real DOM is replaced only on an explicit Play.
+      for (const state of ["ended", "paused"]) {
+        await playbackVideo.evaluate((video, state) => {
+          window.previousRecordingVideo = video;
+          Object.defineProperty(video, state, { value: true, configurable: true });
+        }, state);
+        await page.locator(".record-item").click();
+        await expect.poll(() => playbackVideo.evaluate(video => video !== window.previousRecordingVideo)).toBe(true);
+        await expect(playbackVideo).toHaveAttribute("src", selectedSource);
+        assert.equal(await playbackVideo.evaluate(video => video.currentTime), 0);
+      }
       assert.equal(new URL(selectedSource, page.url()).searchParams.get("camera_id"), activeId);
+      await playbackVideo.evaluate(video => { window.previousRecordingVideo = video; });
       cameras = [{ ...camera, name: "验收摄像头（已刷新）" }];
       await page.getByRole("banner").getByRole("button", { name: "刷新", exact: true }).click();
       await expect(page.getByRole("combobox", { name: "摄像头", exact: true })).toHaveText("验收摄像头（已刷新）");
       await expect(playbackVideo).toHaveAttribute("src", selectedSource);
+      assert.equal(await playbackVideo.evaluate(video => video === window.previousRecordingVideo), true, "snapshot refresh preserves the media node");
       clients.push({ ...activeInstance, id: secondId, name: "第二摄像机实例" });
       cameras = [...cameras, { ...camera, id: secondId, client_id: secondId, name: "第二摄像头" }];
       await page.getByRole("button", { name: "实例列表", exact: true }).click();
