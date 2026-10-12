@@ -148,10 +148,10 @@ Administrator Browser Session
 
 普通运行不扫描其他代路径、不解析非当前Schema/密文，也不通过fallback修补数据。实例、runtime和companion锁分别核对物理身份，错误输入拒绝运行。
 
-## 9. Web 构建与 xcss 1.0.2 流程
+## 9. Web 构建与 xcss 1.0.7 流程
 
 ```text
-package.json + package-lock.json 精确锁定 xcss 1.0.2 和工具链
+package.json + package-lock.json 精确锁定 xcss 1.0.7 和工具链
   -> npm ci
   -> check:xcss
        ├─ 校验 Node/React/TypeScript/Vite 精确版本
@@ -177,8 +177,8 @@ npm run build
 
 `build` 已把 `check:xcss` 设为硬前置，因此不能通过直接执行 Vite 跳过共享边界。构建产物完全自包含；
 浏览器运行时不解析 npm 包，也不访问 npm registry、xcss 仓库或远程 CSS。
-构建期单个 @xcss/web 包候选固定xcss `v1.0.2`官方URL和真实归档的lockfile integrity；xcss 1.0.2 已正式发布，产品输入使用官方归档与精确 SRI。
-Rust crate 由版本 `=1.0.2` 和 revision `3f751196615edd9f7fda2d76a5aa90f9f42586dc` 双重锁定。两者都不读取
+构建期单个 @xcss/web 包候选固定xcss `v1.0.7`官方URL和真实归档的lockfile integrity；当前 revision 与归档已在本地准备，尚未推送或发布；跨机器构建前须先完成基础库发布。
+Rust crate 由版本 `=1.0.7` 和 revision `b3a68b94e1b7bae53685bae07449e3f78e3c20a8` 双重锁定。两者都不读取
 共同父目录或 sibling checkout，也不提供旧来源 fallback。
 
 ## 10. xcss 共享层与产品层调用树
@@ -202,10 +202,10 @@ web/src/main.tsx
    └─ 纸张/墨色/警示色、布局、组件和响应式品牌样式
 
 Rust/Axum
-├─ xcss::contracts 1.0.2 -> Administrator 认证 DTO/路径和跨语言合同
-├─ xcss::error 1.0.2 -> 严格 ErrorEnvelope/ErrorCode
-├─ xcss::schema_identity 1.0.2 -> metadata DDL/列、指纹 framing 与 exact identity
-├─ xcss::server_target 1.0.2 -> 编译期 x86_64-unknown-linux-gnu 门禁
+├─ xcss::contracts 1.0.7 -> Administrator 认证 DTO/路径和跨语言合同
+├─ xcss::error 1.0.7 -> 严格 ErrorEnvelope/ErrorCode
+├─ xcss::schema_identity 1.0.7 -> metadata DDL/列、指纹 framing 与 exact identity
+├─ xcss::server_target 1.0.7 -> 编译期 x86_64-unknown-linux-gnu 门禁
 └─ Xcos 产品代码 -> 私有 SQLite generation、Schema DDL、Cookie、Session、媒体、审计与运维
 ```
 

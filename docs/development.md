@@ -61,7 +61,7 @@ lifecycle test 仅使用临时根，覆盖 no-clobber、合同外环境拒绝、
 当前 Web 使用 xcss 的 admin-web、admin-shell、admin-ui、contracts、design-tokens、http-client、
 web-fonts、web-toolchain 八个内部模块，作为一个 @xcss/web 构建期包发布，不是生产运行服务。Node 固定为 `.node-version` 的 `26.7.0`。
 
-- 候选Rust输入固定 xcss `=1.0.2` / `3f751196615edd9f7fda2d76a5aa90f9f42586dc`，一个 @xcss/web 包使用对应新tag URL与真实tarball的lock integrity。xcss 1.0.2 已正式发布，官方单包已逐字节验证；产品仍须完成自身正式构建和发行验收。
+- 候选Rust输入固定 xcss `=1.0.7` / `b3a68b94e1b7bae53685bae07449e3f78e3c20a8`，一个 @xcss/web 包使用对应新tag URL与真实tarball的lock integrity。当前 revision 与对应 Web 包已在本地准备，尚未推送或发布；跨机器构建前须先发布这些精确输入，产品仍须完成自身正式构建和发行验收。
 - 针对本次最终源码和最终发行物分别保存验证结果，统一 manifest、lockfile 和发布身份。
 
 ```bash
