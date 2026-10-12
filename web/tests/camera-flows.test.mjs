@@ -83,6 +83,12 @@ test("invalid or reversed recording dates fail locally and allow a retry", async
     assert.equal(calls, 0);
   }
   range();
+  date(1, "");
+  search();
+  await settle();
+  assert.equal(nodes(node => node.type === "error").length, 1);
+  assert.equal(calls, 0);
+  range();
   search();
   await settle();
   assert.equal(calls, 1);
@@ -131,6 +137,86 @@ test("switching recording camera clears playback and ignores its pending request
   assert.equal(rows().length, 0);
   assert.equal(video().props.src, undefined);
   assert.match(textContent(host.render()), /Choose a time range and search/);
+});
+
+for (const change of ["camera", "camera replacement", "start", "end"]) {
+  test(`recording ${change} changes never render the old result before effects clear it`, async t => {
+    const { host, nodes, date, search, rows, video } = recordings(t);
+    globalThis.probeRequest = async () => [segment];
+    search();
+    await settle();
+    rows()[0].props.onClick();
+    assert.match(video().props.src, /camera-a/);
+
+    if (change === "camera") nodes(node => node.type === "select")[0].props.onChange({ target: { value: "camera-b" } });
+    else if (change === "camera replacement") host.props = { ...host.props, cameras: [{ id: "camera-b", name: "B" }] };
+    else date(change === "start" ? 0 : 1, "2026-10-02T00:00");
+
+    let renders = 0;
+    host.render(tree => {
+      renders += 1;
+      assert.equal(walk(tree, node => node.type === "video")[0].props.src, undefined,
+        "a committed render must not assign a stale segment to another camera or date range");
+      assert.equal(walk(tree, node => node.props.className === "record-item").length, 0);
+      assert.match(textContent(tree), /Choose a time range and search/);
+      assert.match(textContent(tree), /No recording selected/);
+    });
+    assert.ok(renders > 0);
+  });
+}
+
+test("refreshing the same camera snapshot preserves its selected recording", async t => {
+  const { host, search, rows, video } = recordings(t);
+  globalThis.probeRequest = async () => [segment];
+  search();
+  await settle();
+  rows()[0].props.onClick();
+  const selectedSource = video().props.src;
+  host.props = { ...host.props, cameras: host.props.cameras.map(camera => ({ ...camera, name: `${camera.name} refreshed` })) };
+  host.render(tree => {
+    assert.equal(walk(tree, node => node.type === "video")[0].props.src, selectedSource);
+    assert.equal(walk(tree, node => node.props.className === "record-item").length, 1);
+  });
+});
+
+test("a slow earlier refresh cannot replace a newer result or its playback selection", async t => {
+  const { host, search, rows, video } = recordings(t);
+  const earlier = deferred(), newer = deferred();
+  globalThis.probeRequest = () => earlier.promise;
+  search();
+  globalThis.probeRequest = () => newer.promise;
+  search();
+  const newerSpan = { start: "2026-10-01T13:00:00Z", duration: 120 };
+  newer.resolve([newerSpan]);
+  await settle();
+  rows()[0].props.onClick();
+  const selectedSource = video().props.src;
+  earlier.resolve([segment]);
+  await settle();
+  host.render(tree => {
+    const source = walk(tree, node => node.type === "video")[0].props.src;
+    assert.equal(source, selectedSource);
+    assert.equal(new URL(source, "https://camera.example").searchParams.get("start"), newerSpan.start);
+    assert.equal(walk(tree, node => node.props.className === "record-item").length, 1);
+    assert.match(textContent(tree), /2m 0s/);
+  });
+});
+
+test("cross-midnight recording searches preserve the requested bounds and selected segment", async t => {
+  const { date, search, rows, video } = recordings(t);
+  date(0, "2026-10-01T23:30");
+  date(1, "2026-10-02T00:30");
+  const span = { start: new Date("2026-10-01T23:45").toISOString(), duration: 1800 };
+  let queried;
+  globalThis.probeRequest = async path => { queried = new URL(path, "https://camera.example"); return [span]; };
+  search();
+  await settle();
+  assert.equal(queried.searchParams.get("start"), new Date("2026-10-01T23:30").toISOString());
+  assert.equal(queried.searchParams.get("end"), new Date("2026-10-02T00:30").toISOString());
+  rows()[0].props.onClick();
+  const playback = new URL(video().props.src, "https://camera.example");
+  assert.equal(playback.searchParams.get("start"), span.start);
+  assert.equal(playback.searchParams.get("duration"), "1800");
 });
 
 test("recording local date inputs round-trip ordinary winter and summer instants", () => {

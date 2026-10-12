@@ -71,7 +71,7 @@ try {
     try {
       const context = await browser.newContext({ locale: "zh-CN", timezoneId: "America/Los_Angeles", viewport: { width: 360, height: 740 } });
       const page = await context.newPage();
-      const errors = [], paths = [], ptz = [], eventQueries = [], logQueries = [], commandReceipts = new Map();
+      const errors = [], paths = [], ptz = [], eventQueries = [], logQueries = [], recordingPlaybackQueries = [], commandReceipts = new Map();
       let acknowledged = false, failAudit = false, holdSystem = false, releaseSystem = null, serverToday = "2026-09-04", clients = [{ ...activeInstance }, { ...pendingInstance }], cameras = [camera];
       const boundedName = `\uFEFF${"x".repeat(63)}`;
       const expectedNames = ["Renamed instance", "\uFEFFRenamed instance\uFEFF", "Renamed instance", boundedName, "Renamed instance"];
@@ -144,7 +144,15 @@ try {
           logQueries.push({ path, search: url.search, date, end_date: url.searchParams.get("end_date"), limit: url.searchParams.get("limit"), offset: url.searchParams.get("offset") });
           return fulfillHistory(date === "2026-09-05" ? [] : date === "2026-09-03" ? Array.from({ length: 140 }, (_, index) => ({ id: `past-audit-${index}`, user_id: administratorId, action: "camera.updated", entity_type: "camera", entity_id: camera.id, details: { generation: 1, note: "x".repeat(60_000) }, created_at: "2026-09-02T16:00:00Z", server_created_at: "2026-09-03 00:00:00 +08:00" })) : [{ id: "audit-1", user_id: administratorId, action: "camera.updated", entity_type: "camera", entity_id: camera.id, details: { generation: 1 }, created_at: time, server_created_at: serverTime }]);
         }
-        if (path.endsWith("/recordings")) { assert.equal(url.searchParams.get("camera_id"), camera.id); return route.fulfill({ json: [{ start: time, duration: 60 }] }); }
+        if (path.endsWith("/recordings")) {
+          const cameraId = url.searchParams.get("camera_id");
+          assert.ok(cameras.some(value => value.id === cameraId));
+          return route.fulfill({ json: [{ start: cameraId === secondId ? "2026-09-04T01:00:00Z" : time, duration: 60 }] });
+        }
+        if (path.endsWith("/recordings/play")) {
+          recordingPlaybackQueries.push(url.search);
+          return route.fulfill({ status: 204 });
+        }
         throw new Error(`Unexpected API request ${request.method()} ${path}`);
       });
       await page.goto(`http://127.0.0.1:${address.port}/#instances`);
@@ -245,6 +253,14 @@ try {
       await page.keyboard.press("Escape");
       await page.getByRole("button", { name: "查询录像", exact: true }).click();
       await expect(page.getByRole("button", { name: /1分0秒/ })).toBeVisible();
+      await page.locator(".record-item").click();
+      const playbackVideo = page.locator(".playback-stage video");
+      const selectedSource = await playbackVideo.getAttribute("src");
+      assert.equal(new URL(selectedSource, page.url()).searchParams.get("camera_id"), activeId);
+      cameras = [{ ...camera, name: "验收摄像头（已刷新）" }];
+      await page.getByRole("banner").getByRole("button", { name: "刷新", exact: true }).click();
+      await expect(page.getByRole("combobox", { name: "摄像头", exact: true })).toHaveText("验收摄像头（已刷新）");
+      await expect(playbackVideo).toHaveAttribute("src", selectedSource);
       clients.push({ ...activeInstance, id: secondId, name: "第二摄像机实例" });
       cameras = [...cameras, { ...camera, id: secondId, client_id: secondId, name: "第二摄像头" }];
       await page.getByRole("button", { name: "实例列表", exact: true }).click();
@@ -253,11 +269,33 @@ try {
       await expect(page.getByRole("region", { name: "配对账户信息" })).toContainText("第二摄像机实例");
       const recordingCamera = page.getByRole("combobox", { name: "摄像头", exact: true });
       await expect(recordingCamera).toHaveValue(secondId);
+      await page.getByRole("button", { name: "查询录像", exact: true }).click();
+      await page.locator(".record-item").click();
+      await expect(playbackVideo).toHaveAttribute("src", new RegExp(`camera_id=${secondId}`));
+      await page.evaluate(() => {
+        // Observe every DOM write, including a source removed by a passive effect.
+        window.recordingSourceWrites = [];
+        const setAttribute = Element.prototype.setAttribute;
+        Element.prototype.setAttribute = function (name, value) {
+          if (this instanceof HTMLVideoElement && name === "src") window.recordingSourceWrites.push(value);
+          return setAttribute.call(this, name, value);
+        };
+        window.restoreRecordingSourceProbe = () => { Element.prototype.setAttribute = setAttribute; };
+      });
+      const playbackRequestsBeforeReplacement = recordingPlaybackQueries.length;
       clients = clients.filter(client => client.id !== secondId);
       cameras = [camera];
       await page.getByRole("banner").getByRole("button", { name: "刷新", exact: true }).click();
       await expect(page.getByRole("region", { name: "配对账户信息" })).toContainText("Renamed instance");
       await expect(recordingCamera).toHaveValue(activeId);
+      await expect(playbackVideo).not.toHaveAttribute("src");
+      await expect(page.locator(".record-item")).toHaveCount(0);
+      assert.deepEqual(await page.evaluate(() => {
+        window.restoreRecordingSourceProbe();
+        return window.recordingSourceWrites;
+      }), [], "switching instances must never commit the old span as another camera's source");
+      assert.ok(recordingPlaybackQueries.slice(playbackRequestsBeforeReplacement).every(query =>
+        new URLSearchParams(query).get("camera_id") !== activeId), "camera replacement must not request playback before a new selection");
       await page.getByRole("button", { name: "查询录像", exact: true }).click();
       await expect(page.getByRole("button", { name: /1分0秒/ })).toBeVisible();
       await page.getByRole("button", { name: "日志", exact: true }).click();
