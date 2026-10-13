@@ -40,7 +40,7 @@ Web 显示“观测已过期”或“尚无有效观测”，详情同时显示�
 旧在线徽标也不会一直保留。`/v3/info` 成功只说明 MediaMTX 信息接口可用，不能证明路径清单或摄像机在线。
 
 当前数据库格式为 `xcos-db-v2`、Schema revision `2`，浏览器契约为 `xcos-wire-v2`；Client 设备协议和媒体 JWT
-未变化。运行前校验当前结构，失败时保留原数据库。全新部署通过显式 `xcos init` 创建当前状态。
+未变化。运行前校验当前结构，失败时保留原数据库。全新部署由 xssi 的签名辅助程序创建当前状态。
 
 ## 4. 当前数据库与凭据合同
 
@@ -67,10 +67,10 @@ owner 是规范 UUIDv4，时间为 UTC RFC 3339 且 expiry 晚于 updated。产�
 
 ## 6. 锁顺序
 
-应用全生命周期持有数据库 instance 排他、maintenance 共享和 runtime app lock。正常运行持有数据库父目录
-`.state-maintenance.lock` 共享锁与 `.state-instance.lock` 独占锁；runtime 目录使用同一公共锁协议并维护 PID。
-MediaMTX 由 systemd 跟踪。离线维护前通过主 unit 停止整组服务，再按 database maintenance -> runtime
-取得排他锁。不要用不同 runtime 指向同一数据库；database identity lock 仍会拒绝第二实例。
+应用全生命周期持有数据库父目录的 `.state-maintenance.lock` 共享锁与 `.state-instance.lock` 独占锁。
+启动取得实例锁后，只在私有快照执行一次完整数据库检查，再在打开运行连接前后复核数据库 inode；
+不创建 PID 文件或独立 runtime 锁。MediaMTX 由 systemd 跟踪。离线维护先停止整组服务，再取得
+状态目录的排他 maintenance 锁。明确的 pending 维护事务会阻止普通启动和管理员变更。
 
 ## 日志与历史容量
 

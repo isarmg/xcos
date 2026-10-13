@@ -2,17 +2,13 @@
 use anyhow::{ensure, Context};
 use std::os::unix::fs::MetadataExt;
 use std::{fs, path::PathBuf};
-use xcss::state_file::{InstanceLock, MaintenanceLock, PrivateStateDirectory};
+use xcss::state_file::{InstanceLock, PrivateStateDirectory};
 
 pub struct ApplicationLock {
     _instance: InstanceLock,
     database: PathBuf,
     database_identity: Option<(u64, u64)>,
 }
-pub struct DatabaseMaintenanceLock {
-    _lock: MaintenanceLock,
-}
-
 impl ApplicationLock {
     pub fn acquire(database_url: &str) -> anyhow::Result<Self> {
         let database = crate::sqlite::database_path(database_url)?;
@@ -53,25 +49,6 @@ impl ApplicationLock {
         Ok(())
     }
 }
-impl DatabaseMaintenanceLock {
-    pub fn shared(database_url: &str) -> anyhow::Result<Self> {
-        let database = crate::sqlite::database_path(database_url)?;
-        let root =
-            PrivateStateDirectory::open(database.parent().context("database parent is required")?)?;
-        root.verify_no_pending_maintenance()?;
-        Ok(Self {
-            _lock: root.try_shared_maintenance_lock()?,
-        })
-    }
-    pub fn exclusive(database_url: &str) -> anyhow::Result<Self> {
-        let database = crate::sqlite::database_path(database_url)?;
-        let root =
-            PrivateStateDirectory::open(database.parent().context("database parent is required")?)?;
-        Ok(Self {
-            _lock: root.try_maintenance_lock()?,
-        })
-    }
-}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -90,12 +67,21 @@ mod tests {
         let first = ApplicationLock::acquire(&url).unwrap();
         first.validate_open_database().unwrap();
         assert!(ApplicationLock::acquire(&url).is_err());
-        assert!(DatabaseMaintenanceLock::exclusive(&url).is_err());
-        DatabaseMaintenanceLock::shared(&url).unwrap();
+        assert!(PrivateStateDirectory::open(root.path())
+            .unwrap()
+            .try_maintenance_lock()
+            .is_err());
+        PrivateStateDirectory::open(root.path())
+            .unwrap()
+            .try_shared_maintenance_lock()
+            .unwrap();
         assert!(!root.path().join("runtime").exists());
         assert!(!root.path().join("app.pid").exists());
         drop(first);
-        let maintenance = DatabaseMaintenanceLock::exclusive(&url).unwrap();
+        let maintenance = PrivateStateDirectory::open(root.path())
+            .unwrap()
+            .try_maintenance_lock()
+            .unwrap();
         assert!(ApplicationLock::acquire(&url).is_err());
         drop(maintenance);
         ApplicationLock::acquire(&url).unwrap();

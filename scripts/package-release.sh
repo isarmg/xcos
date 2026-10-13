@@ -1,112 +1,150 @@
 #!/usr/bin/env bash
 set -euo pipefail
-
-SOURCE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
-# shellcheck source=/dev/null
-source "$SOURCE_ROOT/deploy/common.sh"
-OUTPUT="${1:?usage: package-release.sh ABSOLUTE_OUTPUT_DIRECTORY}"
-validate_absolute_path "$OUTPUT" "output directory"
-assert_directory "$OUTPUT" "output directory"
-[[ "$OUTPUT" != "$SOURCE_ROOT" && "$OUTPUT" != "$SOURCE_ROOT/"* ]] || die "output must be outside the checkout"
-[[ "$(stat -c '%u' -- "$OUTPUT")" == "$(id -u)" ]] || die "output must be owned by the packager"
-[[ -z "$(find -P "$OUTPUT" -maxdepth 0 -perm /022 -print)" ]] || die "output must not be group/world writable"
-ARCHIVE="xcos-$XCOS_VERSION-x86_64-unknown-linux-gnu.tar.gz"
-[[ ! -e "$OUTPUT/$ARCHIVE" && ! -L "$OUTPUT/$ARCHIVE" && ! -e "$OUTPUT/SHA256SUMS" && ! -L "$OUTPUT/SHA256SUMS" ]] || die "refusing to overwrite release assets"
-TEMPORARY="$(mktemp -d "$OUTPUT/.xcos-package.XXXXXXXX")"
-cleanup() {
-  chmod -R u+w -- "$TEMPORARY"
-  rm -rf -- "$TEMPORARY"
-}
-trap cleanup EXIT
-media_version="$(awk -F= '$1 == "version" { print $2 }' "$SOURCE_ROOT/config/mediamtx.lock")"
-[[ "$media_version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "invalid pinned MediaMTX version"
-curl --fail --location --retry 3 --output "$TEMPORARY/mediamtx.tar.gz" \
-  "https://github.com/bluenviron/mediamtx/releases/download/$media_version/mediamtx_${media_version}_linux_amd64.tar.gz"
-tar -xzf "$TEMPORARY/mediamtx.tar.gz" -C "$TEMPORARY" mediamtx LICENSE
-XCOS_INSTALL_ROOT="$TEMPORARY/archive" \
-  XCOS_BUILD_TARGET="${XCOS_BUILD_TARGET:-$TEMPORARY/build}" \
-  XCOS_MEDIAMTX_SOURCE="$TEMPORARY/mediamtx" \
-  bash "$SOURCE_ROOT/scripts/build.sh"
-release_root="$TEMPORARY/archive"
-verify_release "$release_root"
-chmod 0755 "$release_root"
-mkdir "$release_root/licenses"
-install -m 0644 "$TEMPORARY/LICENSE" "$TEMPORARY/archive/licenses/MediaMTX-LICENSE"
-for name in OFL.txt CJK-LICENSE.txt NORMAL-LICENSE.txt; do
-  install -m 0644 "$SOURCE_ROOT/web/node_modules/@xcss/web/dist/web-fonts/$name" "$TEMPORARY/archive/licenses/$name"
+export GIT_NO_REPLACE_OBJECTS=1
+source_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
+product="xcos"
+required_cargo_cyclonedx_version="0.5.9"
+required_cargo_audit_version="0.22.2"
+output=""
+signing_key="${XSSI_SIGNING_KEY:-}"
+while (($#)); do
+  case "$1" in
+    --output-dir) output="${2:?missing output directory}"; shift 2 ;;
+    --signing-key) signing_key="${2:?missing signing key}"; shift 2 ;;
+    /*) [[ -z "$output" ]] || { echo 'Duplicate output directory' >&2; exit 2; }; output="$1"; shift ;;
+    *) echo 'Usage: package-release.sh --output-dir ABSOLUTE --signing-key PEM' >&2; exit 2 ;;
+  esac
 done
-chmod 0755 "$release_root/licenses"
-write_release_manifest "$release_root" "$TEMPORARY/repacked-manifest"
-install -m 0644 "$TEMPORARY/repacked-manifest" "$release_root/RELEASE-MANIFEST"
-chmod 0755 "$release_root"
-verify_release "$release_root"
-epoch="$(git -C "$SOURCE_ROOT" show -s --format=%ct HEAD)"
-tar --sort=name --mtime="@$epoch" --owner=0 --group=0 --numeric-owner \
-  -C "$TEMPORARY/archive" -czf "$TEMPORARY/$ARCHIVE" .
-mkdir "$TEMPORARY/extracted"
-tar -xzf "$TEMPORARY/$ARCHIVE" -C "$TEMPORARY/extracted"
-verify_release "$TEMPORARY/extracted"
-python3 - "$TEMPORARY" "$OUTPUT" "$ARCHIVE" <<'PUBLISH'
-import hashlib, os, stat, sys
-
-def physical_directory(path):
-    if not os.path.isabs(path) or os.path.normpath(path) != path:
-        raise ValueError('directory must be an absolute normalized path')
-    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
-    descriptor = os.open('/', flags)
-    try:
-        for name in path.split('/')[1:]:
-            if not name: continue
-            next_descriptor = os.open(name, flags, dir_fd=descriptor)
-            os.close(descriptor)
-            descriptor = next_descriptor
-        metadata = os.fstat(descriptor)
-        if metadata.st_uid != os.geteuid() or metadata.st_mode & 0o022:
-            raise ValueError('publication directory must be owned and private from other writers')
-        return descriptor
-    except BaseException:
-        os.close(descriptor)
-        raise
-
-staging = physical_directory(sys.argv[1])
-output = physical_directory(sys.argv[2])
-archive = sys.argv[3]
-created = []
-try:
-    descriptor = os.open(archive, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=staging)
-    with os.fdopen(descriptor, 'rb') as stream:
-        metadata = os.fstat(stream.fileno())
-        if not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1 or metadata.st_uid != os.geteuid():
-            raise ValueError('staged archive must be one owned regular file')
-        digest = hashlib.file_digest(stream, 'sha256').hexdigest()
-        os.fsync(stream.fileno())
-    descriptor = os.open('SHA256SUMS', os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=staging)
-    with os.fdopen(descriptor, 'w', encoding='ascii') as stream:
-        stream.write(digest + '  ' + archive + '\n')
-        stream.flush()
-        os.fsync(stream.fileno())
-    os.fsync(staging)
-    # The complete archive is published last. link is atomic no-clobber even
-    # if another invocation races these already-verified destination names.
-    for name in ['SHA256SUMS', archive]:
-        identity = os.stat(name, dir_fd=staging, follow_symlinks=False)
-        os.link(name, name, src_dir_fd=staging, dst_dir_fd=output, follow_symlinks=False)
-        created.append((name, identity.st_dev, identity.st_ino))
-    os.fsync(output)
-except BaseException:
-    # Roll back only links published by this invocation, never a pre-existing
-    # archive/checksum or a replacement created by another process.
-    for name, device, inode in reversed(created):
-        try:
-            current = os.stat(name, dir_fd=output, follow_symlinks=False)
-            if (current.st_dev, current.st_ino) == (device, inode):
-                os.unlink(name, dir_fd=output)
-        except FileNotFoundError:
-            pass
-    os.fsync(output)
-    raise
-finally:
-    os.close(staging)
-    os.close(output)
-PUBLISH
-printf 'Verified release archive: %s\n' "$OUTPUT/$ARCHIVE"
+[[ "$output" = /* && -d "$output" && -n "$signing_key" ]] || { echo 'Existing absolute output directory and signing key are required.' >&2; exit 2; }
+[[ -z "$(git -C "$source_root" status --porcelain=v1 --untracked-files=all)" ]] || { echo 'Release source must be clean.' >&2; exit 1; }
+source_revision="$(git -C "$source_root" rev-parse --verify HEAD)"
+version="$(python3 - "$source_root/Cargo.toml" <<'VERSION'
+import sys, tomllib
+with open(sys.argv[1], 'rb') as stream: print(tomllib.load(stream)['package']['version'])
+VERSION
+)"
+[[ "$(git -C "$source_root" cat-file -t "refs/tags/v$version")" = tag && "$(git -C "$source_root" rev-parse "refs/tags/v$version^{commit}")" = "$source_revision" ]] || { echo 'A source-bound annotated release tag is required.' >&2; exit 1; }
+xssi_revision="$(sed -n 's/^git_rev=//p' "$source_root/config/xssi.lock")"
+[[ "$xssi_revision" =~ ^[0-9a-f]{40}$ && "$xssi_revision" != 0000000000000000000000000000000000000000 ]] || { echo 'Pin the reviewed xssi commit before building a release.' >&2; exit 1; }
+# Keep the supply-chain gates fixed while installation logic lives in xssi.
+[[ "$(cargo audit --version)" = "cargo-audit-audit $required_cargo_audit_version" ]] || { echo 'Pinned cargo-audit is required.' >&2; exit 1; }
+[[ "$(cargo cyclonedx --version)" = "cargo-cyclonedx-cyclonedx $required_cargo_cyclonedx_version" ]] || { echo 'Pinned cargo-cyclonedx is required.' >&2; exit 1; }
+archive="$product-$version-linux-x86_64.tar.gz"
+[[ ! -e "$output/$archive" && ! -L "$output/$archive" && ! -e "$output/SHA256SUMS" && ! -L "$output/SHA256SUMS" ]] || { echo 'Refusing to overwrite release assets.' >&2; exit 1; }
+work="$(mktemp -d "$output/.$product-package.XXXXXXXX")"
+trap 'rm -rf -- "$work"' EXIT
+# Build only immutable, verified source objects; dependencies cannot mutate the
+# working tree that supplies the source-bound identity or packaging inputs.
+original_source="$source_root"
+mkdir -m 0700 "$work/source"
+git -C "$original_source" archive --format=tar --output="$work/source.tar" "$source_revision"
+python3 - "$original_source" "$source_revision" "$work/source.tar" "$work/source" <<'SOURCE'
+import pathlib,subprocess,sys,tarfile
+repository,revision,archive,destination=sys.argv[1:]
+raw=subprocess.check_output(['git','-C',repository,'ls-tree','-rz','--full-tree',revision])
+expected={}
+for record in raw.split(b'\0'):
+    if not record: continue
+    identity,name=record.split(b'\t',1);mode,kind,object_id=identity.split()
+    if mode not in (b'100644',b'100755') or kind!=b'blob': raise SystemExit('Source tree contains an unsupported entry')
+    expected[name.decode('utf-8')]=(mode,object_id)
+seen=set()
+with tarfile.open(archive,'r:') as source:
+    for item in source.getmembers():
+        relative=pathlib.PurePosixPath(item.name)
+        if relative.is_absolute() or '..' in relative.parts: raise SystemExit('Unsafe source archive path')
+        target=pathlib.Path(destination)/relative
+        if item.isdir(): target.mkdir(parents=True,exist_ok=True);continue
+        if not item.isfile() or item.name not in expected or item.name in seen: raise SystemExit('Unexpected source entry')
+        mode,object_id=expected[item.name]
+        content=source.extractfile(item).read()
+        trusted=subprocess.check_output(['git','-C',repository,'cat-file','blob',object_id.decode()])
+        if content!=trusted: raise SystemExit('Source archive bytes differ from the commit')
+        target.parent.mkdir(parents=True,exist_ok=True)
+        target.write_bytes(content);target.chmod(0o755 if mode==b'100755' else 0o644)
+        seen.add(item.name)
+if seen!=set(expected): raise SystemExit('Source archive omitted committed files')
+SOURCE
+source_root="$work/source"
+# Build from an own source-bound checkout without rewriting verified archive bytes.
+git init --quiet "$source_root"
+git -C "$source_root" fetch --quiet --no-tags "$original_source" "$source_revision"
+git -C "$source_root" reset --soft FETCH_HEAD
+git -C "$source_root" read-tree HEAD
+[[ "$(git -C "$source_root" rev-parse HEAD)" = "$source_revision" && -z "$(git -C "$source_root" status --porcelain=v1 --untracked-files=all)" ]] || { echo 'Private build checkout differs from the verified snapshot.' >&2; exit 1; }
+cargo audit --deny yanked --file "$source_root/Cargo.lock"
+mkdir -p "$work/stage/bin" "$work/stage/share/systemd" "$work/stage/config" "$work/metadata"
+git init --quiet "$work/xssi"
+git -C "$work/xssi" remote add origin https://github.com/isarmg/xssi.git
+python3 - "$work/xssi" "$xssi_revision" <<'FETCH'
+import base64,os,subprocess,sys
+root,revision=sys.argv[1:]
+environment=os.environ.copy()
+# Scope optional read-only private-repository authentication to this Git fetch.
+# The token is neither put in URLs nor passed as a command argument or logged.
+token=environment.pop('XSSI_REPOSITORY_TOKEN','')
+environment['GIT_TRACE_REDACT']='1'
+environment['GIT_TERMINAL_PROMPT']='0'
+if token and any(character.isspace() for character in token): raise SystemExit('Repository access token has an invalid shape')
+if environment.get('GITHUB_ACTIONS')=='true' and not token: raise SystemExit('XSSI_REPOSITORY_TOKEN with read-only private repository access is required in CI')
+if token:
+    count=int(environment.get('GIT_CONFIG_COUNT','0'))
+    environment[f'GIT_CONFIG_KEY_{count}']='http.https://github.com/isarmg/xssi.git.extraheader'
+    encoded=base64.b64encode(('x-access-token:'+token).encode()).decode()
+    environment[f'GIT_CONFIG_VALUE_{count}']='AUTHORIZATION: basic '+encoded
+    environment['GIT_CONFIG_COUNT']=str(count+1)
+result=subprocess.run(['git','-C',root,'fetch','--quiet','--depth=1','origin',revision],env=environment)
+if result.returncode: raise SystemExit('Unable to fetch the pinned xssi source; verify read-only repository access')
+FETCH
+unset XSSI_REPOSITORY_TOKEN
+git -C "$work/xssi" checkout --quiet --detach FETCH_HEAD
+[[ "$(git -C "$work/xssi" rev-parse HEAD)" = "$xssi_revision" ]]
+npm ci --prefix "$source_root/web"
+builder="$source_root/web/node_modules/.bin/xcss-build-server"
+export XCOS_SOURCE_REVISION="$source_revision"
+export XCSS_WEB_DIST="$source_root/web/dist"
+export XSSI_BUILD_METADATA_DIR="$work/metadata"
+"$builder" --config "$source_root/xcss-web-build.json" --mode release --no-install --source-revision "$source_revision" > "$work/build.log"
+server_binary="$(tail -n 1 "$work/build.log")"
+[[ "$server_binary" = /* && -f "$server_binary" && ! -L "$server_binary" && -x "$server_binary" ]] || { echo 'Builder did not return a physical executable.' >&2; exit 1; }
+install -m 0755 "$server_binary" "$work/stage/bin/$product"
+python3 - "$server_binary.xssi-web-build.json" "$work/stage/bin/$product" "$product" "$source_revision" <<'RECEIPT'
+import hashlib,json,pathlib,sys
+receipt_file,binary_file,product,revision=sys.argv[1:]
+receipt=json.loads(pathlib.Path(receipt_file).read_bytes())
+identity=receipt['identity']
+if receipt['format']!='xssi-web-build-receipt-v1' or identity['product']!=product or identity['source_revision']!=revision or identity['target']!='x86_64-unknown-linux-gnu':
+    raise SystemExit('Staged binary differs from its source-bound build receipt')
+with open(binary_file,'rb') as stream: digest=hashlib.file_digest(stream,'sha256').hexdigest()
+if digest!=receipt['binary_sha256']: raise SystemExit('Staged binary was replaced after verification')
+RECEIPT
+install -m 0644 "$work/metadata/$product-state-contract.json" "$work/stage/share/state-contract.json"
+install -m 0644 "$work/metadata/$product-web-assets.json" "$work/stage/share/web-assets.json"
+install -m 0644 "$source_root/LICENSE" "$work/stage/share/LICENSE"
+install -m 0644 "$source_root/config/xcos.json.example" "$work/stage/config/config.json.example"
+install -m 0644 "$source_root/config/mediamtx.env.example" "$work/stage/config/mediamtx.env.example"
+install -m 0644 "$source_root/config/mediamtx.lock" "$work/stage/share/mediamtx.lock"
+install -m 0644 "$source_root/config/mediamtx.yml" "$work/stage/share/mediamtx.yml"
+for unit in xcos.service xcos-mediamtx.service; do install -m 0644 "$source_root/deploy/$unit" "$work/stage/share/systemd/$unit"; done
+media_version="$(sed -n 's/^version=//p' "$source_root/config/mediamtx.lock")"
+media_hash="$(sed -n 's/^sha256=//p' "$source_root/config/mediamtx.lock")"
+[[ "$media_version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ && "$media_hash" =~ ^[0-9a-f]{64}$ ]]
+curl --fail --location --retry 3 --output "$work/media.tar.gz" "https://github.com/bluenviron/mediamtx/releases/download/$media_version/mediamtx_${media_version}_linux_amd64.tar.gz"
+tar -xzf "$work/media.tar.gz" -C "$work" mediamtx LICENSE
+[[ "$(sha256sum "$work/mediamtx" | cut -d ' ' -f 1)" = "$media_hash" && "$("$work/mediamtx" --version)" = "$media_version" ]]
+install -m 0755 "$work/mediamtx" "$work/stage/bin/mediamtx"
+install -m 0644 "$work/LICENSE" "$work/stage/share/MediaMTX-LICENSE"
+export XSSI_SOURCE_REVISION="$source_revision"
+export XSSI_IDENTITY_FILE="$work/metadata/$product-identity.json"
+export XSSI_SCHEMA_FILE="$work/metadata/$product-schema.json"
+export XSSI_SIGNING_KEY="$signing_key"
+bash "$work/xssi/scripts/build-package.sh" "$product" "$source_root" "$work/stage"
+[[ "$(git -C "$source_root" rev-parse HEAD)" = "$source_revision" && -z "$(git -C "$source_root" status --porcelain=v1 --untracked-files=all)" ]] || { echo 'Private source changed during build.' >&2; exit 1; }
+[[ "$(git -C "$original_source" rev-parse HEAD)" = "$source_revision" && "$(git -C "$original_source" rev-parse "refs/tags/v$version^{commit}")" = "$source_revision" ]] || { echo 'Release identity changed during build.' >&2; exit 1; }
+[[ -z "$(git -C "$original_source" status --porcelain=v1 --untracked-files=all)" ]] || { echo 'Source changed during build.' >&2; exit 1; }
+epoch="$(git -C "$original_source" show -s --format=%ct "$source_revision")"
+tar --sort=name --mtime="@$epoch" --owner=0 --group=0 --numeric-owner -C "$work/stage" -czf "$work/$archive" .
+(cd "$work" && sha256sum "$archive" > SHA256SUMS)
+# Publish without replacing any existing release asset, even if another build races.
+ln "$work/SHA256SUMS" "$output/SHA256SUMS"
+ln "$work/$archive" "$output/$archive"

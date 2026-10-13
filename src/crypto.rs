@@ -1,13 +1,10 @@
 //! Xcos-specific credential domain and object binding over xcss secrets.
 
 use crate::error::{AppError, Result};
-use sha2::{Digest, Sha256};
 use std::sync::Arc;
 use xcss::secret::{SecretBytes, SecretKey};
 use xcss::secret_envelope::EnvelopeDomain;
 
-const PRODUCT: &str = "xcos";
-const APPLICATION_VERSION: &str = "1.0.0";
 pub(crate) const CREDENTIAL_ENVELOPE_REVISION: u32 = 1;
 const MAX_AUTHORIZATION_ENVELOPE_BYTES: usize = 1024;
 
@@ -72,14 +69,6 @@ pub(crate) fn is_current_authorization_code(value: &str) -> bool {
             .all(|byte| byte.is_ascii_digit() || byte.is_ascii_lowercase())
 }
 
-pub(crate) fn credential_contract_sha256() -> String {
-    let contract = format!(
-        "format=xcss-secret-envelope\nproduct={PRODUCT}\napplication_version={APPLICATION_VERSION}\nenvelope_revision={CREDENTIAL_ENVELOPE_REVISION}\ndomain={}\nbinding=client_instance_id\nfield=authorization_code_enc\nmax_envelope_bytes={MAX_AUTHORIZATION_ENVELOPE_BYTES}\nauthorization_code=current:36-lowercase-alphanumeric\n",
-        String::from_utf8_lossy(ClientAuthorizationEnvelope::DOMAIN),
-    );
-    hex::encode(Sha256::digest(contract.as_bytes()))
-}
-
 fn malformed_envelope() -> AppError {
     AppError::Internal("credential envelope is not exactly current or authenticated".into())
 }
@@ -102,7 +91,6 @@ mod tests {
 
     #[test]
     fn credential_identity_and_schema_are_a_single_current_contract() {
-        assert_eq!(APPLICATION_VERSION, "1.0.0");
         let schema = include_str!("../schema/generated/current_schema.sql");
         assert!(schema.contains("authorization_code_enc BLOB"));
         let camera_table = schema

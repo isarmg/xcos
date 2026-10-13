@@ -26,10 +26,9 @@ cargo +1.99.0 check --locked --all-targets
 ```bash
 read -rs -p 'Local administrator password: ' LOCAL_ADMIN_PASSWORD
 printf '\n'
-printf '%s\n' "$LOCAL_ADMIN_PASSWORD" | target/x86_64-unknown-linux-gnu/debug/xcos init --username admin
+printf '%s\n' "$LOCAL_ADMIN_PASSWORD" | /absolute/signed-package/libexec/setup --product xcos --root /absolute/development-root initialize --username admin
 unset LOCAL_ADMIN_PASSWORD
-target/x86_64-unknown-linux-gnu/debug/xcos config validate
-target/x86_64-unknown-linux-gnu/debug/xcos run
+target/x86_64-unknown-linux-gnu/debug/xcos --root /absolute/development-root
 ```
 
 仅开发目录热更新时设置 `XCOS_STATIC_DIR="$PWD/web/dist"`；重新构建 Web 后无需重编 Rust。

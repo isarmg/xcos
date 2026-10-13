@@ -1,12 +1,12 @@
 {
-  "data_dir": "/var/lib/isarmg/xcos",
-  "recordings_directory": "/var/lib/isarmg/xcos/recordings",
+  "data_dir": "/opt/isarmg/xcos/state",
+  "recordings_directory": "/opt/isarmg/xcos/state/recordings",
   "public_rtsp_publish_base_url": "rtsps://REPLACE_WITH_PUBLIC_HOST:8322",
   "bind": "127.0.0.1:18106",
   "development": false,
   "media_callback_bind": "127.0.0.1:18107",
-  "mediamtx_config": "/etc/isarmg/xcos/mediamtx.yml",
-  "mediamtx_contract": "/opt/isarmg/xcos/config/mediamtx.lock",
+  "mediamtx_config": "/opt/isarmg/xcos/config/mediamtx.yml",
+  "mediamtx_contract": "/opt/isarmg/xcos/share/mediamtx.lock",
   "mediamtx_binary": "/opt/isarmg/xcos/bin/mediamtx",
   "log_level": "info"
 }

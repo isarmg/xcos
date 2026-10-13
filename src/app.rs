@@ -1,7 +1,7 @@
 use crate::{
     background, camera_state, config::Config, crypto::SecretBox, doctor, lifecycle,
     mediamtx::MediaMtxClient, models::EventRecord, reconciliation, routes, runtime_lock, sqlite,
-    static_assets, CliFailure,
+    static_assets,
 };
 use sqlx::SqlitePool;
 use std::sync::Arc;
@@ -37,7 +37,6 @@ pub(crate) async fn serve(
     static_assets::embedded_contract_sha256()?;
     // Reject missing/unknown data before creating operational files or listening.
     let database = sqlite::database_path(&config.database_url)?;
-    sqlite::validate_current_database(&database)?;
     let application_lock = Arc::new(runtime_lock::ApplicationLock::acquire(
         &config.database_url,
     )?);
@@ -47,7 +46,7 @@ pub(crate) async fn serve(
             "development mode uses loopback-only cookies without Secure"
         );
     }
-    let snapshot = sqlite::current_validation_snapshot(&database).await?;
+    let snapshot = sqlite::current_validation_snapshot(&database, &config.root.join("run")).await?;
     let validation = async {
         xcss::sqlite::integrity_check(snapshot.pool()).await?;
         xcss::sqlite::foreign_key_check(snapshot.pool()).await?;
@@ -65,7 +64,7 @@ pub(crate) async fn serve(
     .await;
     snapshot.close().await;
     validation?;
-    let pool = sqlite::open_pool(&config.database_url).await?;
+    let pool = sqlite::open_runtime_pool(&config.database_url, &application_lock).await?;
     // Retain the owner through every startup failure until all connections close.
     let result = async {
         application_lock.validate_open_database()?;
@@ -96,8 +95,6 @@ pub(crate) async fn serve(
                 "current administrator state is missing; explicit init is required for new data"
             );
         }
-        administrator.store().validate_all_administrators().await?;
-        camera_state::validate_current_camera_data(&pool).await?;
         let administrator_origin = if config.development_mode {
             xcss::admin_auth::AdministratorOriginMode::LoopbackDevelopmentHttp
         } else {
@@ -118,13 +115,8 @@ pub(crate) async fn serve(
             administrator_origin,
         };
 
-        reconciliation::validate_stored_camera_credentials(&state).await?;
-        let data_dir = sqlite::database_path(&state.config.database_url)?
-            .parent()
-            .expect("validated database parent")
-            .to_path_buf();
-        xcss::server_cli::validate_runtime_log_directory(&data_dir).map_err(CliFailure)?;
-        let logs = data_dir.join("logs");
+        let logs = state.config.root.join("logs");
+        xcss::fs_safety::PrivateDirectory::open_existing(&logs)?;
         log_layer.set_rotating_file(xcss::log::RotatingLogFile::open(
             logs,
             "server",

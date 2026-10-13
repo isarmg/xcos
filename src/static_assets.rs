@@ -6,10 +6,6 @@ pub fn embedded_contract_sha256() -> anyhow::Result<String> {
     Ok(DIGEST.to_owned())
 }
 
-pub(crate) fn embedded_manifest_sha256() -> String {
-    DIGEST.to_owned()
-}
-
 pub(crate) async fn serve(
     axum::extract::State(state): axum::extract::State<crate::AppState>,
     request: axum::extract::Request,

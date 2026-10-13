@@ -46,33 +46,33 @@ xcss 提供管理员创建、凭据管理与停用能力。摄像头 RTSP/ONVIF 
 |---|---|---|---|---|---|---|
 | SEN-P-001 | 浏览器摄像头监控产品：Rust 控制面管理摄像头和授权，MediaMTX 承担 RTSP、WHEP、HLS 与录像 | `src/routes/`、`src/mediamtx.rs`、`config/mediamtx.yml` | 核心 | 高 | 删除任一主组件都会失去控制面或媒体面，项目不再完整 | 摄像头添加、直播、录像、重启链路 |
 | SEN-P-002 | Server 开发、测试、正式编译目标唯一为 `x86_64-unknown-linux-gnu` | `xcss::server_target`、`build.rs`、`rust-toolchain.toml` | 保障 | 高 | 放宽后会产生未经验证的平台二进制，且可能与 companion 平台失配 | 非目标编译必须失败；目标常量与 Cargo target 一致 |
-| SEN-P-003 | 正式构建与运行目标为 Linux AMD64 GNU | `scripts/build.sh`、Rust target | 保障 | 中 | 错误平台无法执行正式制品 | Linux x86_64；非目标平台拒绝 |
+| SEN-P-003 | 正式构建与运行目标为 Linux AMD64 GNU | `scripts/package-release.sh`、Rust target | 保障 | 中 | 错误平台无法执行正式制品 | Linux x86_64；非目标平台拒绝 |
 | SEN-P-004 | MediaMTX 固定 v1.20.0 linux_amd64 与 SHA-256 | `config/mediamtx.lock`、`doctor::verify_companion` | 保障 | 高 | 媒体行为不可复现 | version/platform/digest 同时匹配 |
 | SEN-P-005 | 控制面与媒体面分离；Rust 不代理 RTSP、不转码 | `src/mediamtx.rs`、`config/mediamtx.yml` | 核心 | 高 | 删 companion 无直播录像 | 真实媒体发布播放 |
-| SEN-P-006 | 普通运行只接受当前合同并验证当前状态身份 | `src/main.rs` CLI、`src/sqlite/` | 保障 | 高 | 加入代际 reader 会长期扩大状态和测试矩阵 | init/run/config validate/status/help/version核心命令和只读state-contract；普通运行拒绝非当前库，不提供历史转换入口 |
+| SEN-P-006 | 普通运行只接受当前合同并验证当前状态身份 | `src/main.rs` CLI、`src/sqlite/` | 保障 | 高 | 加入代际 reader 会长期扩大状态和测试矩阵 | server 只有 ROOT 运行、help/version；维护由 xssi 签名辅助程序执行；普通运行拒绝非当前库，不提供历史转换入口 |
 | SEN-P-007 | Server 端 React 19 + TypeScript strict + Vite 8 控制台位于 `web/` | `web/package.json`、`web/src/main.tsx` | 建议保留 | 高 | API 和媒体能力仍在，但没有内置可操作控制台 | typecheck、Vite build、发行静态树验证 |
-| SEN-P-008 | Server Rust与单个 @xcss/web 包候选以xcss 1.0.7完整revision、URL及真实tarball integrity受控；当前基础库 revision 与归档已本地准备且未推送发布，产品本轮验收和发行状态单独记录 | Cargo、一个 `@xcss/web` 依赖、manifest/lock | 保障 | 高 | 平台行为分叉；独立构建通过不代表主分支改动已纳入产品 Release | [本项目 CI](https://github.com/isarmg/xcos/actions)及[正式发行资产](https://github.com/isarmg/xcos/releases)；后续更新仍须复验锁图和发行身份 |
+| SEN-P-008 | Server Rust与单个 @xcss/web 包候选以xcss 1.0.13完整revision、URL及真实tarball integrity受控；基础库使用正式发布的不可变输入，产品验收和发行状态单独记录 | Cargo、一个 `@xcss/web` 依赖、manifest/lock | 保障 | 高 | 平台行为分叉；独立构建通过不代表主分支改动已纳入产品 Release | [本项目 CI](https://github.com/isarmg/xcos/actions)及[正式发行资产](https://github.com/isarmg/xcos/releases)；后续更新仍须复验锁图和发行身份 |
 | SEN-P-009 | `config/` 只存可提交样例和受审 companion 合同；真实 Secret 不进仓库 | `config/xcos.json.example`、`.gitignore` | 开发运维 | 低 | Secret 容易误提交，或部署字段缺少审查入口 | Secret 扫描；样例字段与 parser 对照 |
-| SEN-P-010 | 只由 systemd 管理两个前台进程，同为普通 isarmg-xcos UID；ctl 仅封装 systemctl | `deploy/*.service`、`deploy/xcosctl` | 开发运维 | 中 | 重复管理会争抢进程与数据 | unit 静态测试和目标主机启动验收 |
+| SEN-P-010 | 只由 systemd 管理两个前台进程，同为普通 isarmg-xcos UID；server 不提供进程控制 | `deploy/*.service`、`deploy/xcos.service` | 开发运维 | 中 | 重复管理会争抢进程与数据 | unit 静态测试和目标主机启动验收 |
 
 ## 3. 配置、启动和生命周期
 
 | ID | 当前功能/特性与真实行为 | 实现/代码锚点 | 分类 | 复杂度 | 删除后的确定后果 | 最低验证/边界 |
 |---|---|---|---|---|---|---|
-| SEN-C-001 | 配置为 /etc/isarmg/xcos/config.json，服务用户拥有 0600 文件和 0700 父目录 | `src/config.rs`、配置样例 | 保障 | 中 | 错误所有权或权限暴露秘密 | 私有 JSON 读取负例 |
-| SEN-C-002 | 初始化是独立 init 命令，普通 run 不建库 | `src/cli.rs` | 保障 | 高 | 启动可能误建新状态 | missing-state run 拒绝 |
-| SEN-C-003 | 初始管理员密码仅由 init stdin 输入 | `src/cli.rs`、安装指南 | 保障 | 中 | 密码进入命令行或长期配置 | stdin 初始化测试 |
-| SEN-C-004 | 初始化和离线校验不依赖 runtime；systemd 创建 /run 私有目录 | `src/cli.rs`、`deploy/*.service` | 开发运维 | 中 | 首次启动或重启后初始化受阻 | runtime 不存在时 init/config validate |
+| SEN-C-001 | 配置为 ROOT/config/config.json，服务用户拥有 0600 文件和 0700 父目录 | `src/config.rs`、配置样例 | 保障 | 中 | 错误所有权或权限暴露秘密 | 私有 JSON 读取负例 |
+| SEN-C-002 | 初始化属于 xssi 辅助程序，server 不建库 | `src/offline.rs` | 保障 | 高 | 启动可能误建新状态 | missing-state run 拒绝 |
+| SEN-C-003 | 初始管理员密码仅由辅助程序 stdin 输入 | `src/offline.rs`、安装指南 | 保障 | 中 | 密码进入命令行或长期配置 | stdin 初始化测试 |
+| SEN-C-004 | 初始化和离线校验不依赖 runtime；安装脚本创建 ROOT/run 私有目录 | `src/offline.rs`、`deploy/*.service` | 开发运维 | 中 | 首次启动或重启后初始化受阻 | 辅助程序配置校验与初始化 |
 | SEN-C-005 | bind 默认 127.0.0.1:18106；development 默认 false，开发只允许 loopback；生产 Secure Cookie | `src/config.rs`、`src/auth.rs` | 保障 | 中 | 误用开发认证策略或暴露入口 | 默认值、loopback、Cookie 测试 |
 | SEN-C-006 | init生成两个独立32字节随机密钥写入私有secrets.json；配置不接受密钥值 | `src/config.rs` | 保障 | 中 | 弱密钥或歧义 key 长度会降低媒体授权和凭据保护 | 缺失、短值、非法 Base64、31/33 bytes 负例 |
-| SEN-C-007 | `XCOS_RUNTIME_DIR` 与开发 `XCOS_STATIC_DIR` 必须绝对路径 | `src/config.rs` | 保障 | 低 | cwd 变化会把锁或前端指到不同位置 | 相对路径拒绝；绝对路径接受 |
-| SEN-C-008 | 登录 body、bucket 容量、来源/账户窗口、Argon2 并发与超时采用 xcss 固定认证策略 | `xcss::admin_core::AdministratorPolicyV1` | 保障 | 中 | 私有策略或失效环境变量会让运维误判保护边界 | 共享策略与产品实际登录入口；超时后许可回收；无产品参数覆盖 |
+| SEN-C-007 | ROOT 固定日志和临时目录；开发 `XCOS_STATIC_DIR` 仅接受绝对路径 | `src/config.rs` | 保障 | 低 | cwd 变化可能指向不同前端目录 | 相对路径拒绝；绝对路径接受 |
+| SEN-C-008 | 登录正文、会话容量、Argon2 并发与等待预算采用 xcss 固定策略；不按地址或登录失败次数计数 | `xcss::admin_core::AdministratorPolicyV1` | 保障 | 中 | 认证资源准入与实际容量不一致 | 共享策略与产品登录入口；超时后许可回收 |
 | SEN-C-009 | Media token TTL、状态刷新、reconcile 周期、上游请求超时均显式配置 | `src/config.rs` | 建议保留 | 中 | 删除可调性会把不同网络/规模强行绑定同一节奏 | 0/极端值行为；周期任务不重叠失控 |
 | SEN-C-010 | Server 不接收摄像机网络地址或设备凭据；发现、地址校验和适配器配置全部位于 Client | xcoc `device`/`onvif` 模块、Server 当前 Schema | 保障 | 中 | Server 重新接触摄像机内网会绕过授权实例边界 | Server direct API 为 405、Schema 拒绝未绑定摄像机 |
-| SEN-C-011 | 生产 run 只使用内嵌 Web，显式 verify-release 比较完整资产清单 | `src/static_assets.rs`、`src/release.rs` | 保障 | 中 | 资源与构建身份漂移 | 全资产 HTTP 与显式校验测试 |
+| SEN-C-011 | 生产 run 只使用内嵌 Web，显式 xssi 包校验 比较完整资产清单 | `src/static_assets.rs`、`xssi/scripts/package.py` | 保障 | 中 | 资源与构建身份漂移 | 全资产 HTTP 与显式校验测试 |
 | SEN-C-012 | systemd Requires/After 先启动 companion，应用 readiness 检查真实可用性 | `deploy/*.service` | 保障 | 高 | 媒体不可用时误报就绪 | companion 故障与 readiness |
 | SEN-C-013 | systemd PartOf 跟随主服务停止和重启 companion | `deploy/*.service` | 保障 | 中 | 遗留 companion 或重启不一致 | 目标主机 stop/restart 验收 |
-| SEN-C-014 | PID 文件和进程可执行路径共同校验，不只信任 PID 数字 | `deploy/common.sh` | 保障 | 中 | PID 重用可能误杀无关进程或误报运行状态 | 伪 PID、已退出 PID、不同 executable 负例 |
+| SEN-C-014 | server 持有当前私有数据库目录的实例锁，不使用 PID 文件 | `src/runtime_lock.rs` | 保障 | 中 | 同一业务状态可能被多个服务并发恢复 | 重复实例、维护排他、链接与替换负例 |
 
 ## 4. Administrator 认证与请求安全
 
@@ -81,10 +81,10 @@ xcss 提供管理员创建、凭据管理与停用能力。摄像头 RTSP/ONVIF 
 | SEN-A-001 | 所有控制面账户都是 Administrator；平台表不持久化角色；管理员 ID 为不透明 TEXT，不要求 UUID | xcss admin-core/admin-sqlite、生成 Schema | 核心 | 高 | 失去认证或业务外键错误绑定 | 当前 DDL、真实 bootstrap ID、业务外键回归 |
 | SEN-A-002 | 三个认证路径精确为 `/api/v1/auth/login`、`/api/v1/auth/session`、`/api/v1/auth/logout` | xcss constants、`src/routes/` | 保障 | 中 | 路径漂移会让共享客户端失效，别名会形成额外攻击面 | 三路径方法矩阵；其他形状 404/405 |
 | SEN-A-003 | 登录 body 精确为 `{username,password}`，未知字段与已删除的 email 字段由 DTO 拒绝；Session 精确为 `{authenticated,user_id,username,role:"admin",csrf_token}` | `AdministratorLoginRequest`、`AdministratorSession`、Axum `Json` | 保障 | 低 | 歧义输入可能在 Server、xcss 和 Web 产生不同解释 | 缺失、额外、类型错误、超限 body、Session exact keys |
-| SEN-A-004 | username 使用 xcss 唯一规则：candidate 1..64 bytes printable ASCII，经 trim ASCII/lowercase 后 canonical 必须为 3..64 bytes、首尾字母数字、字符仅 `[a-z0-9._-]`；Schema 保存同一 canonical 形状 | `normalize_administrator_username`、`require_canonical_administrator_username`、`current_schema.sql` | 保障 | 中 | 同一管理员可用变体绕过唯一约束/限流，或跨产品身份语义不一致 | 大写/首尾空白正例；`@`、Unicode、内部空白、控制字符、首尾分隔符负例 |
+| SEN-A-004 | username 使用 xcss 唯一规则：candidate 1..64 bytes printable ASCII，经 trim ASCII/lowercase 后 canonical 必须为 3..64 bytes、首尾字母数字、字符仅 `[a-z0-9._-]`；Schema 保存同一 canonical 形状 | `normalize_administrator_username`、`require_canonical_administrator_username`、`current_schema.sql` | 保障 | 中 | 同一管理员可用变体绕过唯一约束，或跨产品身份语义不一致 | 大写/首尾空白正例；`@`、Unicode、内部空白、控制字符、首尾分隔符负例 |
 | SEN-A-005 | 密码只接受 xcss 当前策略和精确 Argon2id hash 参数 | `xcss::admin_auth`、`src/auth.rs` | 保障 | 高 | 放宽 hash 会形成多策略验证分支；弱 hash 降低离线攻击成本 | 当前 PHC 正例；参数、版本、salt/output 偏差拒绝 |
 | SEN-A-006 | 未知账户使用当前 dummy hash，减少账户枚举时序差异 | xcss AdministratorService | 保障 | 中 | 未知 username 明显更快返回 | 已知错误密码与未知账户成本 |
-| SEN-A-007 | 登录按来源 IP 与 canonical username 分别限流，全局 bucket 有界 | xcss AdministratorService | 保障 | 高 | 暴力猜测或耗尽认证资源 | 规范化、窗口恢复、有界容量、429 |
+| SEN-A-007 | 登录正文与哈希计算按全局资源容量准入，不解析访客 IP 或按账号失败频率计数 | xcss AdministratorService 与 BodyAdmission | 保障 | 高 | 认证资源耗尽 | 全局读取许可、计算许可、超时、取消后释放 |
 | SEN-A-008 | Argon2 计算使用共享 semaphore 和等待预算 | xcss AdministratorService | 保障 | 高 | blocking worker 耗尽 | 许可上限、超时、失败释放 |
 | SEN-A-009 | Session token 为 32 随机字节，平台库仅保存 SHA-256 digest | xcss _common_admin_sessions | 保障 | 高 | 明文库可转为活跃登录凭据 | token/digest 形状、无明文 |
 | SEN-A-010 | Session 具有固定 idle/absolute TTL，平台节流刷新 last_seen | xcss authenticate_session | 保障 | 高 | 会话永久存活或写入过密 | 过期、刷新预算、CSRF 比较更新、时间不倒退 |
@@ -108,7 +108,7 @@ xcss 提供管理员创建、凭据管理与停用能力。摄像头 RTSP/ONVIF 
 | SEN-K-004 | 永久授权码使用认证加密保存并绑定授权实例 ID；Server 可查看和更换，更换立即撤销旧 Token | `SecretBox`、`authorization_code_enc`、`update_client_authorization` | 保障 | 高 | 数据库泄漏可直接暴露配对权限，或旧客户端继续连接 | 错实例/错 key/篡改失败，更换后旧凭据失败 |
 | SEN-K-005 | 摄像机 RTSP/ONVIF 地址和设备账号只保留在 Client；Server Schema 不存在这些列 | `cameras`、Client LocalState | 保障 | 高 | Server 数据库会暴露摄像机内网和设备 Secret | Schema 列清单、管理 JSON 均无 URL/密码 |
 | SEN-K-006 | Client 快照最多一台摄像机，非空时摄像机 ID 等于授权实例 ID；空快照移除该实例原有摄像机 | `client_snapshot`、edge v1 | 保障 | 高 | 一个授权码可越权覆盖其他摄像机 | 0 台移除正例；2 台、错 ID、重复 ID 拒绝 |
-| SEN-K-007 | 启动与check 认证全部持久授权码 envelope | `doctor::verify_credentials`、`SecretBox` | 保障 | 高 | 错 key 或坏密文直到配对管理时才暴露 | 任一授权码篡改使检查失败且不改库 |
+| SEN-K-007 | 启动与 check 在私有快照验证全部持久授权码 envelope、授权码格式与摘要 | `doctor::verify_credentials_on_snapshot`、`SecretBox` | 保障 | 高 | 错 key 或坏密文可能在运行后才暴露 | 授权码或摘要篡改使检查失败且不改源库 |
 | SEN-K-008 | 撤销实例会停用并隐藏摄像机、排队清理 MediaMTX；清理确认后可永久删除摄像机和授权实例 | `revoke_client`、media reconciliation | 保障 | 高 | 外键使已撤销实例永久无法删除，或媒体路径残留 | 未清理时冲突；撤销重试保留实例；成功清理后独立永久删除成功 |
 | SEN-K-009 | PTZ 只接受 move/stop，pan/tilt/zoom 各在 `[-1,1]`，并作为短时命令发送到拥有该摄像机的 Client | `PtzRequest`、`device_commands`、`routes::ptz` | 可选 | 中 | 删除后仍可监看但不能从控制台云台控制 | 边界值、离线、无能力、命令到期 |
 
@@ -182,32 +182,32 @@ xcss 提供管理员创建、凭据管理与停用能力。摄像头 RTSP/ONVIF 
 | SEN-W-011 | WHEP player 在 component cleanup、profile/camera 变化时关闭 peer/resource | `LiveVideo` effect、`WhepPlayer.close` | 保障 | 高 | 切页后仍保留媒体连接和资源 | mount/unmount、快速切换、失败重试 |
 | SEN-W-012 | 精确 Node 26.7.0、React/DOM 19.3.0、TS 7.0.2、Vite 8.3.3 工具链 | `.node-version`、`package.json`、lockfile | 开发运维 | 中 | CI/开发/发行 bundle 不可复现 | clean `npm ci`、engine、lock 来源、typecheck |
 | SEN-W-013 | `build` 强制先执行 `check:xcss`，再 strict typecheck 与 Vite build | `package.json`、`web/tests/design-xcss.test.mjs` | 开发运维 | 中 | 共享依赖或 CSS 漂移时仍可能生成表面可用 bundle | 故意改版本/import/scope 后 build 在 bundling 前失败 |
-| SEN-W-014 | 发行内嵌全部 Web；只附带 `share/web-assets.json`，不需要运行时 npm/CDN | Vite output、`scripts/build.sh`、release manifest | 保障 | 高 | 运行时网络依赖会破坏离线部署和制品身份 | 断网加载、资源引用、额外文件/篡改拒绝 |
+| SEN-W-014 | 发行内嵌全部 Web；只附带 `share/web-assets.json`，不需要运行时 npm/CDN | Vite output、`scripts/package-release.sh`、release manifest | 保障 | 高 | 运行时网络依赖会破坏离线部署和制品身份 | 断网加载、资源引用、额外文件/篡改拒绝 |
 
 ## 10. SQLite、锁、check、发行与供应链
 
 | ID | 当前功能/特性与真实行为 | 实现/代码锚点 | 分类 | 复杂度 | 删除后的确定后果 | 最低验证/边界 |
 |---|---|---|---|---|---|---|
-| SEN-R-001 | 主文件不存在时只创建当前 Schema；已有空文件或非当前库拒绝 | `sqlite::prepare_current_database` | 保障 | 高 | 自动补表会把未知状态变成不可审计混合状态 | 不存在、空文件、错 application/version/revision/SHA |
+| SEN-R-001 | 仅签名离线辅助程序显式初始化当前 Schema；server 拒绝不存在、空文件或非当前库 | `src/offline.rs`、`src/sqlite/initialization.rs` | 保障 | 高 | 运行自动补表会改变未知状态 | missing-state run、重复初始化、错误 metadata |
 | SEN-R-002 | xcss `xcss::schema_identity` 统一验证 `product_metadata` DDL/完整列形状、exact identity 与现场 `sqlite_schema` fingerprint；Xcos 使用 xcss 的 SQLx 当前 Schema adapter 和自身 lease 校验 | `validate_current_connection`、`product_metadata_rows`、`schema_rows` | 保障 | 高 | 手改 metadata 可伪装结构，DDL drift 被忽略，或多产品 fingerprint 算法分叉 | metadata 0/2 行、负 revision、错误 storage class/default/列、额外表/索引、只改 SHA、WAL 只读拒绝 |
-| SEN-R-003 | 验证前从 main/WAL/journal 复制私有 generation，并复核源文件身份未变 | `snapshot_generation` | 保障 | 高 | 验证可能读到跨时刻混合字节，或在源库上产生写入 | WAL、并发变化、symlink、generation cleanup |
-| SEN-R-004 | SQLite integrity、foreign key 和 rollback write probe 用于check | `doctor.rs`、`sqlite.rs` | 开发运维 | 高 | 仅靠 `SELECT 1` 无法发现损坏、FK 或不可写 | corruption、FK、read-only、写探针回滚 |
+| SEN-R-003 | 启动取得实例锁后，只复制一次 main/WAL/journal 私有代际并验证源文件身份 | `current_validation_snapshot`、xcss ValidationSnapshot | 保障 | 高 | 混合代际可能通过校验，重复全库复制增加启动成本 | WAL、并发变化、symlink、代际清理 |
+| SEN-R-004 | 当前 Schema、integrity、foreign key、管理员和凭据在私有快照校验，不写业务源 | `src/sqlite/connection.rs`、`src/offline.rs` | 开发运维 | 高 | 仅靠连接探针不能发现持久化损坏 | corruption、FK 与源文件不变 |
 | SEN-R-005 | global lease singleton 除 DDL 外还验证 owner UUIDv4、RFC3339 时间和字段组合 | `validate_global_lease_values` | 保障 | 高 | 非法业务不变量可通过 Schema SHA 后进入 worker | 多行、缺行、非规范 UUID/时间、expiry 顺序 |
-| SEN-R-006 | Application lock 绑定数据库与 runtime 物理身份 | `src/runtime_lock.rs` | 保障 | 高 | 同库多实例竞争 | 同/不同 runtime、链接、目录重建 |
-| SEN-R-007 | maintenance lock 为外部停机工具保留排他协调边界 | `DatabaseMaintenanceLock` | 保障 | 高 | 备份/恢复工具可能与运行服务同时操作组合状态 | 服务共享持有、维护排他、锁顺序 |
-| SEN-R-008 | check检查数据库、凭据、录像和 MediaMTX 合同；全树审计用 verify-release | `src/doctor.rs`、`src/release.rs` | 开发运维 | 高 | 离线问题不易诊断 | offline 正反例 |
-| SEN-R-009 | 在线status 额外探测应用与 MediaMTX loopback readiness | `Command::Status`、公共readiness | 开发运维 | 低 | 只能证明静态状态，不能证明两个进程正在响应 | offline 不依赖进程；online 一项失败即报告 |
-| SEN-R-010 | release identity 绑定产品、版本、source revision、target、API、Schema、Web、credential 与 MediaMTX | `src/release.rs::ReleaseIdentity` | 保障 | 高 | 可把不同提交/协议/companion 拼成同名发行物 | identity JSON 与 manifest header 一致 |
-| SEN-R-011 | 显式 verify-release 精确校验 path/type/mode/size/SHA，拒绝额外条目 | `src/release.rs` | 保障 | 高 | 不能证明发布 payload 完整 | missing/extra/tamper/mode/link |
-| SEN-R-012 | 显式 verifier 使用规范物理目录；运行路径固定 bin，不要求版本树 | `src/release.rs`、systemd units | 开发运维 | 中 | 验证路径歧义或运行耦合打包布局 | 物理目录与无需发行树运行测试 |
-| SEN-R-013 | `scripts/build.sh` 要求 clean checkout、annotated `v1.0.3` 指向 HEAD 和 Linux AMD64 | `scripts/build.sh` | 开发运维 | 中 | 无法把制品稳定追溯到源码与版本 | dirty tree、lightweight/wrong tag、wrong host |
-| SEN-R-014 | build 同文件系统 stage，校验后 no-clobber 生成显式目标目录 | `scripts/build.sh` | 保障 | 高 | 半写 payload 或无提示覆盖 | 第二次 build、symlink 拒绝 |
-| SEN-R-015 | deployment fixture 验证 ctl 转发、units、打包与完整性 | `scripts/lifecycle-test.sh` | 开发运维 | 中 | 部署合同漂移 | 临时根，不操作真实服务 |
-| SEN-R-016 | relocated smoke 使用真实程序验证无发行树运行、离线 init 和内嵌资产 | `scripts/relocated-smoke-test.sh` | 开发运维 | 高 | 静态测试无法证明真实运行 | unbound/source-bound、runtime 缺失、全资产 HTTP |
+| SEN-R-006 | Application lock 绑定私有状态目录，并在打开 live pool 前后复核数据库 inode | `src/runtime_lock.rs`、`open_runtime_pool` | 保障 | 高 | 同库多实例或启动时数据库替换 | 重复实例、链接与代际替换 |
+| SEN-R-007 | 运行持有共享 maintenance 锁，离线维护须持有排他 maintenance 锁 | xcss PrivateStateDirectory | 保障 | 高 | 备份或恢复可能与运行服务交错 | 运行共享、维护排他与 pending 拒绝 |
+| SEN-R-008 | check 检查当前数据库、凭据、录像和 MediaMTX 合同；完整发行树由 xssi 验签校验 | `src/offline.rs`、`xssi/scripts/package.py` | 开发运维 | 高 | 离线问题或发行树篡改难以诊断 | offline 正反例 |
+| SEN-R-009 | runtime readiness 额外探测应用存储与 MediaMTX 真实状态 | 公共 readiness、companion probe | 开发运维 | 低 | 仅能证明静态文件，不能证明业务可用 | offline 不依赖运行进程；探针失败报告未就绪 |
+| SEN-R-010 | release identity 绑定产品、版本、source revision、target、API、Schema、Web、credential 与 MediaMTX | `xssi/scripts/package.py::ReleaseIdentity` | 保障 | 高 | 可把不同提交/协议/companion 拼成同名发行物 | identity JSON 与 manifest header 一致 |
+| SEN-R-011 | 显式 xssi 包校验 精确校验 path/type/mode/size/SHA，拒绝额外条目 | `xssi/scripts/package.py` | 保障 | 高 | 不能证明发布 payload 完整 | missing/extra/tamper/mode/link |
+| SEN-R-012 | 显式 verifier 使用规范物理目录；运行路径固定 bin，不要求版本树 | `xssi/scripts/package.py`、systemd units | 开发运维 | 中 | 验证路径歧义或运行耦合打包布局 | 物理目录与无需发行树运行测试 |
+| SEN-R-013 | 正式包装器要求 clean checkout、当前版本 annotated tag 指向 HEAD 和 Linux AMD64 | `scripts/package-release.sh` | 开发运维 | 中 | 制品无法追溯到精确源码与版本 | dirty tree、lightweight/wrong tag、wrong host |
+| SEN-R-014 | build 同文件系统 stage，校验后 no-clobber 生成显式目标目录 | `scripts/package-release.sh` | 保障 | 高 | 半写 payload 或无提示覆盖 | 第二次 build、symlink 拒绝 |
+| SEN-R-015 | 部署验收验证离线辅助程序、units 和签名包完整性 | `tests/deployment.rs` | 开发运维 | 中 | 部署合同漂移 | 临时根，不操作真实服务 |
+| SEN-R-016 | 当前布局检查与 offline 适配器测试验证固定 ROOT 及显式初始化 | `scripts/check-deployment.sh` | 开发运维 | 高 | 静态测试无法证明真实运行 | unbound/source-bound、runtime 缺失、全资产 HTTP |
 | SEN-R-017 | CI 门禁 Rust、Web、部署脚本与真实 companion 配置 | `.github/workflows/ci.yml` | 开发运维 | 高 | 交付层与代码漂移 | clean checkout 全 job |
 | SEN-R-018 | Rust 固定 1.99.0，Cargo.lock 与 npm package-lock 都纳入提交 | `rust-toolchain.toml`、lockfiles | 开发运维 | 中 | 依赖解析随时间变化，构建结果不可复现 | `--locked`、`npm ci`、工具链版本 |
-| SEN-R-019 | config 保存样例/媒体合同，deploy 保存 units/ctl，scripts 保存构建检查入口 | 仓库目录结构 | 开发运维 | 低 | 事实来源混乱 | 完整包布局验收 |
-| SEN-R-020 | 当前Schema identity为application `xcos`、数据格式`xcos-db-v2`、revision2、SHA `4d20083821ff39d78792d0795b26206e851c2e6d0523109ee49cfc06666a1d4a`；`_common_administrators` 使用 username，不保存 email/role | `schema/generated/current_schema.sql`、`src/sqlite/`、`scripts/lifecycle-test.sh` | 保障 | 高 | 发行物、运行库和运维文档可能各自接受不同管理身份 DDL | code-owned fingerprint 重算、metadata/现场 schema、列清单、lifecycle identity 一致 |
+| SEN-R-019 | config 保存样例/媒体合同，deploy 保存 runtime-only units，scripts 保存构建检查入口 | 仓库目录结构 | 开发运维 | 低 | 事实来源混乱 | 完整包布局验收 |
+| SEN-R-020 | 当前Schema identity为application `xcos`、数据格式`xcos-db-v2`、revision2、SHA `4d20083821ff39d78792d0795b26206e851c2e6d0523109ee49cfc06666a1d4a`；`_common_administrators` 使用 username，不保存 email/role | `schema/generated/current_schema.sql`、`src/sqlite/`、`tests/deployment.rs` | 保障 | 高 | 发行物、运行库和运维文档可能各自接受不同管理身份 DDL | code-owned fingerprint 重算、metadata/现场 schema、列清单、lifecycle identity 一致 |
 
 ## 11. 可观测性、容量和故障边界
 
@@ -233,7 +233,7 @@ xcss 提供管理员创建、凭据管理与停用能力。摄像头 RTSP/ONVIF 
 | SEN-X-006 | 不提供通用操作 Idempotency-Key；camera desired generation 是当前收敛语义 | Schema/queue 实现 | 保障 | 高 | 新 header 必须定义存储期限、payload digest、冲突和重放响应 | API/Schema/容量/清理/并发完整设计 |
 | SEN-X-007 | PTZ 持久化为有期限设备命令，HTTP 202 仅证明已排队；媒体 operation API 不提供设备命令终态查询 | `routes::ptz`、`device_commands`、Client snapshot | 可选 | 高 | 若提供设备副作用终态查询需定义专用查询与不确定结果模型 | 命令到期、Client 去重、回执、重复动作风险 |
 | SEN-X-008 | 提供媒体 operation 到本地业务审计的持久 outbox，不提供外部必达 sink | `_common_operation_audit_outbox`、`flush_operation_audit` | 可选 | 高 | 外部导出仍需独立投递、重试、死信、脱敏和容量模型，不能把本地确认当外部送达 | 本地投递/确认同事务；若新增外部 sink 须有独立合同与故障验收 |
-| SEN-X-009 | 不承诺应用核对每个录像文件的 Hash/inventory；check目前检查安全目录和写探针 | `doctor::recording_write_probe` | 建议保留 | 高 | 若新增完整 inventory，check时间、存储和备份合同都会扩大 | 百万文件预算、增量索引、特殊文件与并发写设计 |
+| SEN-X-009 | 不承诺应用核对每个录像文件的 Hash/inventory；check 检查安全目录和固定媒体合同，不写业务文件 | `doctor::verify_companion` | 建议保留 | 高 | 若新增完整 inventory，check时间、存储和备份合同都会扩大 | 百万文件预算、增量索引、特殊文件与并发写设计 |
 | SEN-X-010 | 包内提供完整 systemd units 和 ctl 薄封装 | `deploy/`、release layout | 开发运维 | 中 | 部署步骤缺失或双重进程管理 | package fixture 与主机验收 |
 | SEN-X-011 | Server 只支持 Linux x86_64 GNU；管理界面为浏览器，边缘客户端平台由独立 Client 仓库定义 | compile/runtime gates、xcoc | 核心 | 高 | 扩平台不能只删除 compile gate，还需 companion、脚本、锁和发行等价证明 | 新平台完整 CI、真实媒体和部署安全验证 |
 

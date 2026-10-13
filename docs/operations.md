@@ -1,38 +1,27 @@
 # 运维
 
-正式环境只用systemd。xcos和MediaMTX都以普通isarmg-xcos UID前台运行。xcosctl只是systemctl薄封装。
+server 只有 `bin/xcos --root ROOT` 运行入口。安装、离线维护由 xssi 脚本和签名 `libexec/setup` 完成；升级由包内升级脚本调用独立 XSSC。程序不配置或探测代理，不识别访客 IP。
 
 ```sh
 sudo systemctl status xcos.service xcos-mediamtx.service
-sudo systemctl restart xcos.service
-sudo -u isarmg-xcos /opt/isarmg/xcos/bin/xcos config validate
-sudo -u isarmg-xcos /opt/isarmg/xcos/bin/xcos check
-sudo -u isarmg-xcos /opt/isarmg/xcos/bin/xcos status
+sudo /opt/isarmg/xcos/maintenance.sh --root /opt/isarmg/xcos check
+curl --fail http://127.0.0.1:18106/readyz
+sudo /opt/isarmg/xcos/upgrade.sh --root /opt/isarmg/xcos --version VERSION --xssc /absolute/xssc
 ```
 
-config validate只检查配置，不要求数据库、密钥、录像目录已创建；media-config也可在初始化前生成。
-check是离线实例检查，覆盖schema、账户、密钥/凭据解密、录像存储和兼容MediaMTX；status查询真实就绪。
-所有命令使用全局--config与--data-dir；不再提供doctor别名。
+升级自动下载并验签完整包，停止 Xcos 和 MediaMTX、等待实际进程退出、取得维护锁、检查和备份、执行已声明的数据步骤、替换签名清单中的程序文件，再启动并核对实际版本和真实就绪。失败或进程中断使用持久事务恢复；不能通过删锁、重建数据库或重新生成密钥绕过检查。仅支持当前数据合同，不导入旧布局或旧配置。
 
-管理员密码维护须停服，密码从stdin读取：
+管理员改密可以通过管理后台完成；离线重置使用维护脚本，密码经标准输入：
 
-```bash
-sudo systemctl stop xcos.service
-read -rsp 'New administrator password: ' password; echo
-printf '%s\n' "$password" | sudo -u isarmg-xcos /opt/isarmg/xcos/bin/xcos admin reset-password --username admin
-unset password
+```sh
+sudo systemctl stop xcos.service xcos-mediamtx.service
+systemd-ask-password 'New administrator password:' | sudo /opt/isarmg/xcos/maintenance.sh \
+  --root /opt/isarmg/xcos admin-reset --username admin
 sudo systemctl start xcos.service
 ```
 
-密码修改与session撤销由公共认证事务完成，不更换JWT/凭据密钥。
-应用UTC结构日志由公共层轮转到data_dir/logs，log_level默认info；journal收集应用和媒体标准流。
-不自行管理app.log/mediamtx.log，也不自写app.pid；单实例互斥依据data_dir公共锁。
+重置保留管理员稳定 ID 和实例密钥，递增会话版本并撤销原会话。密钥缺失或权限错误直接阻止运行，绝不补建。
 
-/run/isarmg/xcos仅存systemd/MediaMTX临时YAML，由systemd创建0700目录。主服务Requires/After companion，
-companion PartOf主服务；停止时主先停、媒体后停。主RuntimeDirectoryPreserve=yes防止提前删除，
-媒体Preserve=restart在完整停止时清理；两者TimeoutStopSec=120s给业务排空留余量。
-离线命令不依赖/run，持久状态全部位于data_dir，独立录像盘通过recordings_directory配置。
+应用 UTC 结构日志写入 `ROOT/logs`，临时运行文件在 `ROOT/run`；数据库、secrets.json 和公共锁默认在 `ROOT/state`。MediaMTX 生成配置在 `ROOT/config/mediamtx.yml`，签名模板为 `ROOT/share/mediamtx.yml`。journal 可用于查看应用和媒体标准流。卸载由用户自行停止服务、移除 systemd 和程序；业务数据保留或删除由用户决定。
 
-密钥缺失或格式/权限错误会阻止运行，绝不自动修复或重生成。备份数据库时必须同时保存secrets.json。
-安装/升级统一使用新包根install.sh；不导入旧env、旧release布局或外部密钥。
-check可离线检查，真实systemd重启、TLS信任、NAT/ICE和实际摄像头链路仍须在目标环境验收。
+真实 RTSPS TLS、NAT/ICE 和实际摄像头链路需要在目标环境验证。[配置说明](configuration.md)、[故障排查](troubleshooting.md)。

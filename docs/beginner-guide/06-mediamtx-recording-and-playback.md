@@ -7,7 +7,7 @@ systemd 以同一服务 UID 管理 companion。系统包里的同名 binary 不�
 
 ## 6.2 锁顺序
 
-应用持有数据库 instance、maintenance shared 和 runtime app lock。
+应用持有私有数据库目录的 instance 排他锁与 maintenance 共享锁；MediaMTX 进程由 systemd 跟踪。
 离线维护先停止 systemd 整组服务，再按 database maintenance -> runtime 取得排他锁。
 
 ## 6.3 摄像头到媒体服务器

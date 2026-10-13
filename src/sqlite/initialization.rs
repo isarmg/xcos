@@ -5,6 +5,7 @@ pub(crate) async fn initialize_with_administrator(
     database: &std::path::Path,
     username: &str,
     password: &str,
+    temporary_root: &std::path::Path,
 ) -> anyhow::Result<()> {
     let root = database
         .parent()
@@ -19,7 +20,7 @@ pub(crate) async fn initialize_with_administrator(
     let staging = root.join(format!(".xcos-init-{}.sqlite3", uuid::Uuid::new_v4()));
     initialize_current_database(&staging).context("initialize staging schema")?;
     let _staging_cleanup = tempfile::TempPath::try_from_path(staging.clone())?;
-    let pool = open_initialization_pool(&format!("sqlite://{}", staging.display()))
+    let pool = open_initialization_pool(&format!("sqlite://{}", staging.display()), temporary_root)
         .await
         .context("open initialization pool")?;
     let result = async {
@@ -77,13 +78,21 @@ mod initialization_tests {
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(directory.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
         let database = directory.path().join("app.db");
-        super::initialize_with_administrator(&database, "smoke-admin", "TemporaryPassphrase123")
-            .await
-            .unwrap();
-        crate::sqlite::validate_current_database(&database).unwrap();
-        let pool = crate::sqlite::open_pool(&format!("sqlite://{}", database.display()))
-            .await
-            .unwrap();
+        super::initialize_with_administrator(
+            &database,
+            "smoke-admin",
+            "TemporaryPassphrase123",
+            directory.path(),
+        )
+        .await
+        .unwrap();
+        crate::sqlite::validate_current_database(&database, directory.path()).unwrap();
+        let pool = crate::sqlite::open_pool(
+            &format!("sqlite://{}", database.display()),
+            directory.path(),
+        )
+        .await
+        .unwrap();
         let service = xcss::admin_core::AdministratorService::new(
             xcss::admin_sqlite::SqliteAdministratorStore::new(pool.clone()),
         );
@@ -95,7 +104,8 @@ mod initialization_tests {
         assert!(super::initialize_with_administrator(
             &database,
             "other-admin",
-            "AnotherPassphrase123"
+            "AnotherPassphrase123",
+            directory.path(),
         )
         .await
         .is_err());

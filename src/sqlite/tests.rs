@@ -59,7 +59,7 @@ async fn current_schema_fingerprint_matches_the_compiled_contract() {
     let temporary = private_tempdir();
     let database = temporary.path().join("current.sqlite3");
     initialize_current_database(&database).unwrap();
-    validate_current_database(&database).unwrap();
+    validate_current_database(&database, database.parent().unwrap()).unwrap();
 
     let mut connection = fixture_connection(&database).await;
     let metadata: (String, String, i64, String) = sqlx::query_as(
@@ -291,7 +291,7 @@ async fn assert_rejected_without_byte_changes(path: &Path) {
     private_generation(path);
     let before = generation_bytes(path);
     let url = format!("sqlite://{}", path.display());
-    let error = open_pool(&url).await.unwrap_err();
+    let error = open_pool(&url, path.parent().unwrap()).await.unwrap_err();
     assert!(
         format!("{error:#}").contains("database")
             || format!("{error:#}").contains("product_metadata")
@@ -311,7 +311,7 @@ fn current_wal_validation_child() {
     let Some(path) = std::env::var_os("XCOS_WAL_VALIDATION_PATH") else {
         return;
     };
-    validate_current_database(Path::new(&path)).unwrap();
+    validate_current_database(Path::new(&path), Path::new(&path).parent().unwrap()).unwrap();
 }
 
 #[tokio::test]
@@ -319,9 +319,12 @@ async fn normal_open_rejects_missing_database_without_creating_it() {
     let directory = private_tempdir();
     let path = directory.path().join("missing.sqlite3");
     let before = fs::read_dir(directory.path()).unwrap().count();
-    assert!(open_pool(&format!("sqlite://{}", path.display()))
-        .await
-        .is_err());
+    assert!(open_pool(
+        &format!("sqlite://{}", path.display()),
+        path.parent().unwrap()
+    )
+    .await
+    .is_err());
     assert!(!path.exists());
     assert_eq!(fs::read_dir(directory.path()).unwrap().count(), before);
 }

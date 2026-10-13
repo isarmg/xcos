@@ -467,7 +467,7 @@ fn test_state(pool: sqlx::SqlitePool) -> AppState {
         reconcile_interval: Duration::from_secs(60),
         request_timeout: Duration::from_secs(2),
         static_dir: None,
-        trusted_proxies: Vec::new(),
+        root: "/opt/isarmg/xcos".into(),
     });
     let http = reqwest::Client::new();
     let (events, _) = tokio::sync::broadcast::channel(4);
@@ -495,7 +495,7 @@ fn test_state(pool: sqlx::SqlitePool) -> AppState {
 
 #[tokio::test]
 async fn production_ingress_supports_https_origin_through_a_remote_gateway() {
-    use axum::{extract::ConnectInfo, http::Request};
+    use axum::http::Request;
     use tower::ServiceExt as _;
 
     let directory = tempfile::tempdir().unwrap();
@@ -556,7 +556,7 @@ async fn production_ingress_supports_https_origin_through_a_remote_gateway() {
             .with_state(state),
     );
     let request = |method: &str, path: &str, body: String| {
-        let mut request = Request::builder()
+        Request::builder()
             .method(method)
             .uri(path)
             .header("host", "xcos.example.org")
@@ -564,11 +564,7 @@ async fn production_ingress_supports_https_origin_through_a_remote_gateway() {
             .header("sec-fetch-site", "same-origin")
             .header("content-type", "application/json")
             .body(Body::from(body))
-            .unwrap();
-        request.extensions_mut().insert(ConnectInfo(
-            "192.168.1.1:54321".parse::<std::net::SocketAddr>().unwrap(),
-        ));
-        request
+            .unwrap()
     };
     let login = app
         .clone()
@@ -1847,8 +1843,8 @@ async fn ptz_move_prevents_lost_snapshot_stop_from_reappearing() {
 }
 
 #[tokio::test]
-async fn router_uses_trusted_proxy_boundary_and_preserves_error_context() {
-    use axum::{extract::ConnectInfo, http::Request};
+async fn router_ignores_forwarded_addresses_and_preserves_error_context() {
+    use axum::http::Request;
     use tower::ServiceExt;
     let directory = tempfile::tempdir().unwrap();
     let pool = crate::sqlite::initialize_test_pool(&format!(
@@ -1868,29 +1864,16 @@ async fn router_uses_trusted_proxy_boundary_and_preserves_error_context() {
         .build()
         .await
         .unwrap();
-    for trusted in [false, true] {
-        let mut state = test_state(pool.clone());
-        if trusted {
-            Arc::make_mut(&mut state.config).trusted_proxies = vec!["127.0.0.1".into()];
-        }
+    for forwarded in ["invalid-forwarded-address", "198.51.100.1"] {
+        let state = test_state(pool.clone());
         let app = router(state, runtime.handle()).unwrap();
-        let mut request = Request::builder()
+        let request = Request::builder()
             .uri("/healthz")
-            .header("x-forwarded-for", "invalid-forwarded-address")
+            .header("x-forwarded-for", forwarded)
             .body(Body::empty())
             .unwrap();
-        request.extensions_mut().insert(ConnectInfo(
-            "127.0.0.1:12345".parse::<std::net::SocketAddr>().unwrap(),
-        ));
         let response = app.oneshot(request).await.unwrap();
-        assert_eq!(
-            response.status(),
-            if trusted {
-                StatusCode::BAD_REQUEST
-            } else {
-                StatusCode::NO_CONTENT
-            }
-        );
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
         assert_eq!(
             response.headers()[xcss::server_cli::SERVICE_IDENTITY_HEADER],
             "xcos"

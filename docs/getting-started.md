@@ -1,43 +1,25 @@
-# 安装与首次初始化
+# 安装与首次运行
 
-仅支持当前Linux AMD64 GNU/systemd方案，不迁移旧配置或旧发行布局。
-先验证发行包SHA256SUMS，解压到独立临时目录；不要直接覆盖已有运行目录。
-包根只有一个安装入口install.sh，支持setup与upgrade。安装脚本由root执行，服务始终用普通isarmg-xcos UID。
+仅接受当前 Linux AMD64 GNU/systemd 签名包和固定 ROOT 合同。安装和维护由独立 xssi 交付，server 只有运行入口，不初始化、不执行安装或升级，也不识别代理软件。
 
-## 全新安装
+默认 ROOT 为 `/opt/isarmg/xcos`。配置位于 `ROOT/config/config.json`，状态默认 `ROOT/state`，应用日志 `ROOT/logs`，临时运行文件 `ROOT/run`。程序和签名资源由 root 管理，服务使用普通 `isarmg-xcos` UID。录像与实例业务数据可以明确外置。配置目录 0700、文件 0600，密钥与数据库保持同组备份。
 
-复制包内 `config/xcos.json.example` 到私有临时配置，填写实际RTSPS公开域名、
-共享媒体配置路径及按需修改bind/data_dir/独立录像盘。JSON中没有任何实例密钥。
+复制包内 `share/config/config.json.example` 到受保护的输入配置，填写真实 RTSPS 域名和媒体设置。安装公钥及其 DER SHA-256 指纹来自独立可信来源，不能因为包自带公钥就信任它。
 
-```bash
-chmod 700 /path/to/private-config
-chmod 600 /path/to/private-config/config.json
-read -rsp 'Initial administrator password: ' password; echo
-printf '%s\n' "$password" | sudo ./install.sh setup /path/to/private-config/config.json admin
-unset password
+```sh
+systemd-ask-password 'Initial administrator password:' | sudo ./install.sh \
+  --package /absolute/verified-package --root /opt/isarmg/xcos \
+  --config /absolute/private-config.json --username admin \
+  --public-key /absolute/trusted-public.pem --key-sha256 TRUSTED_DER_SHA256
 ```
 
-setup安装程序、专用UID、私有JSON和systemd unit，执行纯配置校验及一次init。
-init自动创建data_dir/secrets.json（0600）、当前数据库、日志及录像目录；拒绝已有数据，不覆盖密钥。
-配置目录为 `/etc/isarmg/xcos`（isarmg-xcos所有，0700），应用配置为config.json（0600）。
-独立录像盘应预先挂载；安装器创建新的录像目录并生成两个unit的data_dir/录像盘写入权限。已有录像目录应授予服务UID所需权限。
+脚本检查发行包、目录、权限和输入，使用签名辅助程序显式初始化新状态，然后生成 systemd 文件并 reload。失败保留受保护事务用于检查或重试；已有状态不被重新初始化。安装成功仍保持停止。
 
-安装RTSPS证书与私钥到私有配置目录，编辑mediamtx.env中的真实TLS/ICE参数。然后：
+配置 RTSPS 证书、私钥和 `ROOT/config/mediamtx.env` 的 TLS/ICE 参数后启动：
 
 ```sh
 sudo systemctl enable --now xcos.service
-sudo -u isarmg-xcos /opt/isarmg/xcos/bin/xcos status
+curl --fail http://127.0.0.1:18106/readyz
 ```
 
-配置网关和媒体端口见[配置说明](configuration.md)。验证HTTPS登录、RTSPS发布、WebRTC/HLS及录像增长。
-
-## 升级
-
-备份data_dir（含secrets.json）和私有配置，从已校验的新发行包目录执行：
-
-```sh
-sudo ./install.sh upgrade
-```
-
-upgrade记录原运行状态、停止服务、安装当前程序和unit、执行离线check；仅原先active才重新启动；不运行init、不替换私有配置或实例密钥。
-若检查失败，保持停服并修复问题；不要通过删密钥或重新初始化绕过错误。
+Xcos 和 MediaMTX 是同一写入组；MediaMTX 程序、固定合同和模板也在 ROOT，录像目录可外置。端口和媒体配置见[配置说明](configuration.md)。升级和维护见[运维](operations.md)。

@@ -12,7 +12,7 @@
 `4d20083821ff39d78792d0795b26206e851c2e6d0523109ee49cfc06666a1d4a`；管理员表只有 canonical
 `username`，没有 email/role。空文件、非当前库和漂移库都只读拒绝。
 
-共享 xcss `xcss::schema_identity 1.0.7` 定义 fingerprint v1 的字节 framing、metadata 五列 DDL/
+共享 xcss `xcss::schema_identity 1.0.13` 定义 fingerprint v1 的字节 framing、metadata 五列 DDL/
 shape 和 exact identity 比较；Xcos 在私有 SQLx 校验代际上复用共享
 `ProductMetadataRow` 后执行验证。SQLite当前WAL/journal代的只读临时副本由xcss公共snapshot捕获；产品验证精确业务Schema、路径身份和lease。普通运行只接受当前revision2。非当前格式只读拒绝，不改写输入。
 
@@ -47,7 +47,7 @@ expiry 晚于 updated；空闲态 owner/expiry 同空。非法状态不自动清
 
 ## 7.8 发行合同
 
-显式 `verify-release PATH` 校验 manifest、文件 Hash/mode/type、Web fingerprint、API 与 Schema
+显式 xssi 签名包校验 校验 manifest、文件 Hash/mode/type、Web fingerprint、API 与 Schema
 身份，拒绝 symlink、额外文件和硬链接。普通 run 不依赖发行树，全树检查用于构建与人工审计。
 
 ## 7.9 变更合同的步骤

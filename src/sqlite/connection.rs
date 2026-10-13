@@ -35,8 +35,8 @@ async fn apply_connection_limits(connection: &mut SqliteConnection) -> Result<()
         .map_err(|error| sqlx::Error::Configuration(Box::new(error)))
 }
 
-pub async fn open_pool(database_url: &str) -> anyhow::Result<SqlitePool> {
-    open_pool_with_limit(database_url, MAX_CONNECTIONS).await
+pub async fn open_pool(database_url: &str, temporary_root: &Path) -> anyhow::Result<SqlitePool> {
+    open_pool_with_limit(database_url, MAX_CONNECTIONS, temporary_root).await
 }
 
 /// Column names and limits are fixed by the product, never supplied by input.
@@ -86,12 +86,38 @@ pub(crate) fn history_error(error: sqlx::Error) -> crate::error::AppError {
     }
 }
 
-pub(crate) async fn open_initialization_pool(database_url: &str) -> anyhow::Result<SqlitePool> {
-    open_pool_with_limit(database_url, 1).await
+pub(crate) async fn open_initialization_pool(
+    database_url: &str,
+    temporary_root: &Path,
+) -> anyhow::Result<SqlitePool> {
+    open_pool_with_limit(database_url, 1, temporary_root).await
 }
 
-async fn open_pool_with_limit(database_url: &str, connections: u32) -> anyhow::Result<SqlitePool> {
-    prepare_current_database(database_url)?;
+async fn open_pool_with_limit(
+    database_url: &str,
+    connections: u32,
+    temporary_root: &Path,
+) -> anyhow::Result<SqlitePool> {
+    prepare_current_database(database_url, temporary_root)?;
+    connect_current_pool(database_url, connections).await
+}
+
+/// The runtime completed its private snapshot checks while holding this owner.
+/// Verify the same database inode and current live schema before admitting work.
+pub(crate) async fn open_runtime_pool(
+    database_url: &str,
+    owner: &crate::runtime_lock::ApplicationLock,
+) -> anyhow::Result<SqlitePool> {
+    owner.validate_open_database()?;
+    let pool = connect_current_pool(database_url, MAX_CONNECTIONS).await?;
+    if let Err(error) = owner.validate_open_database() {
+        pool.close().await;
+        return Err(error);
+    }
+    Ok(pool)
+}
+
+async fn connect_current_pool(database_url: &str, connections: u32) -> anyhow::Result<SqlitePool> {
     let options = SqliteConnectOptions::from_str(database_url)?
         .create_if_missing(false)
         .journal_mode(SqliteJournalMode::Wal)
@@ -113,28 +139,32 @@ async fn open_pool_with_limit(database_url: &str, connections: u32) -> anyhow::R
     Ok(pool)
 }
 
-fn prepare_current_database(database_url: &str) -> anyhow::Result<()> {
+fn prepare_current_database(database_url: &str, temporary_root: &Path) -> anyhow::Result<()> {
     let path = database_path(database_url)?;
     require_real_parent(&path)?;
-    validate_current_database(&path)
+    validate_current_database(&path, temporary_root)
 }
 
-pub(crate) fn validate_current_database(path: &Path) -> anyhow::Result<()> {
-    validated_snapshot(path)?;
+pub(crate) fn validate_current_database(path: &Path, temporary_root: &Path) -> anyhow::Result<()> {
+    validated_snapshot(path, temporary_root)?;
     Ok(())
 }
 
-fn validated_snapshot(path: &Path) -> anyhow::Result<xcss::server_cli::ValidationSnapshot> {
+fn validated_snapshot(
+    path: &Path,
+    temporary_root: &Path,
+) -> anyhow::Result<xcss::server_cli::ValidationSnapshot> {
     require_secure_database_file(path)?;
     // The same main/WAL/journal byte budget bounds accepted persistent state
     // and its validation copy; a default 4 GiB snapshot would reject otherwise
     // admissible state under this product's 8 GiB storage threshold.
-    let snapshot = xcss::server_cli::ValidationSnapshot::capture_with_limits(
+    let snapshot = xcss::server_cli::ValidationSnapshot::capture_with_limits_in(
         path,
         xcss::server_cli::SnapshotLimits {
             max_total_bytes: crate::history::Limits::CURRENT.bytes,
             ..Default::default()
         },
+        temporary_root,
     )?;
     xcss::sqlite::block_on_sqlite_connection(async {
         // Recovery is allowed only on this held private copy, never the source.
@@ -162,8 +192,9 @@ fn validated_snapshot(path: &Path) -> anyhow::Result<xcss::server_cli::Validatio
 
 pub(crate) async fn current_validation_snapshot(
     path: &Path,
+    temporary_root: &Path,
 ) -> anyhow::Result<xcss::server_cli::ValidationSnapshotPool> {
-    Ok(validated_snapshot(path)?
+    Ok(validated_snapshot(path, temporary_root)?
         .into_pool_with_connection_limits(CONNECTION_LIMITS)
         .await?)
 }
@@ -261,5 +292,9 @@ pub(crate) async fn initialize_test_pool(database_url: &str) -> anyhow::Result<S
         fs::Permissions::from_mode(0o700),
     )?;
     initialize_current_database(&path)?;
-    open_pool(database_url).await
+    open_pool(
+        database_url,
+        path.parent().context("test temporary directory")?,
+    )
+    .await
 }

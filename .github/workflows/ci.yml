@@ -146,8 +146,6 @@ jobs:
         run: cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
       - name: Test all features
         run: cargo test --locked --workspace --all-features
-      - name: Smoke-test relocated binary and static assets
-        run: ./scripts/relocated-smoke-test.sh
 
   native-shell:
     needs: scope
@@ -165,7 +163,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mapfile -d '' scripts < <(git ls-files -z -- 'install.sh' 'scripts/*.sh' 'deploy/*.sh' 'deploy/xcosctl')
+          mapfile -d '' scripts < <(git ls-files -z -- 'scripts/*.sh')
           if (( ${#scripts[@]} == 0 )); then
             echo 'No tracked native shell scripts found.' >&2
             exit 1
@@ -175,7 +173,7 @@ jobs:
           done
           shellcheck "${scripts[@]}"
       - name: Verify systemd controls and release packaging
-        run: ./scripts/lifecycle-test.sh
+        run: ./scripts/check-deployment.sh
       - name: Exercise the real pinned companion configuration
         shell: bash
         run: |

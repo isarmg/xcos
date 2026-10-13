@@ -121,7 +121,7 @@ fn test_state(pool: sqlx::SqlitePool, endpoint: &str) -> AppState {
         reconcile_interval: Duration::from_secs(60),
         request_timeout: Duration::from_secs(2),
         static_dir: None,
-        trusted_proxies: Vec::new(),
+        root: "/opt/isarmg/xcos".into(),
     });
     let http = reqwest::Client::builder()
         .no_proxy()

@@ -10,6 +10,7 @@ const DEFAULT_BIND_ADDR: &str = "127.0.0.1:18106";
 
 #[derive(Clone)]
 pub struct Config {
+    pub root: PathBuf,
     pub bind_addr: SocketAddr,
     pub media_callback_bind: SocketAddr,
     pub database_url: String,
@@ -26,13 +27,14 @@ pub struct Config {
     pub reconcile_interval: Duration,
     pub request_timeout: Duration,
     pub static_dir: Option<PathBuf>,
-    pub trusted_proxies: Vec<String>,
 }
 
 /// The current JSON contract. Secrets never appear in a diagnostic report.
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Settings {
+    #[serde(skip)]
+    pub root: PathBuf,
     pub recordings_directory: Option<PathBuf>,
     pub mediamtx_config: Option<PathBuf>,
     pub mediamtx_contract: Option<PathBuf>,
@@ -52,18 +54,18 @@ pub struct Settings {
     pub reconcile_interval_secs: u64,
     pub request_timeout_secs: u64,
     pub static_dir: Option<PathBuf>,
-    pub trusted_proxies: Vec<String>,
 }
 impl Default for Settings {
     fn default() -> Self {
         Self {
+            root: "/opt/isarmg/xcos".into(),
             recordings_directory: None,
-            mediamtx_config: Some("/etc/isarmg/xcos/mediamtx.yml".into()),
-            mediamtx_contract: Some("/opt/isarmg/xcos/config/mediamtx.lock".into()),
+            mediamtx_config: Some("/opt/isarmg/xcos/config/mediamtx.yml".into()),
+            mediamtx_contract: Some("/opt/isarmg/xcos/share/mediamtx.lock".into()),
             mediamtx_binary: Some("/opt/isarmg/xcos/bin/mediamtx".into()),
             bind: DEFAULT_BIND_ADDR.parse().expect("default address"),
             media_callback_bind: "127.0.0.1:18107".parse().expect("callback address"),
-            data_dir: Some("/var/lib/isarmg/xcos".into()),
+            data_dir: Some("/opt/isarmg/xcos/state".into()),
             development: false,
             log_level: "info".into(),
             media_token_ttl_secs: 120,
@@ -76,30 +78,13 @@ impl Default for Settings {
             reconcile_interval_secs: 60,
             request_timeout_secs: 20,
             static_dir: None,
-            trusted_proxies: Vec::new(),
         }
     }
 }
-#[derive(Clone, Default, clap::Args)]
-pub struct Overrides {
-    #[arg(long)]
-    pub bind: Option<SocketAddr>,
-    #[arg(long, num_args=0..=1, default_missing_value="true")]
-    pub development: Option<bool>,
-}
-
-pub fn load(
-    file: Option<&Path>,
-    data_dir: Option<&Path>,
-    cli: &Overrides,
-) -> anyhow::Result<xcss::config::Loaded<Settings>> {
-    use xcss::config::{EnvMapping, EnvValueKind, Override};
+pub fn load_at_root(root: &Path, file: &Path) -> anyhow::Result<xcss::config::Loaded<Settings>> {
+    validate_root(root)?;
+    use xcss::config::{EnvMapping, EnvValueKind};
     let mappings = [
-        EnvMapping {
-            variable: "XCOS_TRUSTED_PROXIES",
-            path: "/trusted_proxies",
-            kind: EnvValueKind::Json,
-        },
         EnvMapping {
             variable: "XCOS_LOG_LEVEL",
             path: "/log_level",
@@ -210,33 +195,41 @@ pub fn load(
         !invalid_unicode,
         "mapped environment settings must be valid Unicode"
     );
-    let default_path = Path::new("/etc/isarmg/xcos/config.json");
-    let file = match file {
-        Some(path) => Some(path),
-        None => match std::fs::symlink_metadata(default_path) {
-            Ok(_) => Some(default_path),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
-            Err(error) => return Err(error.into()),
-        },
+    let bytes = xcss::config::read_private_file(file)?;
+    let defaults = Settings {
+        root: root.to_path_buf(),
+        data_dir: Some(root.join("state")),
+        mediamtx_config: Some(root.join("config/mediamtx.yml")),
+        mediamtx_contract: Some(root.join("share/mediamtx.lock")),
+        mediamtx_binary: Some(root.join("bin/mediamtx")),
+        ..Default::default()
     };
-    let bytes = file.map(xcss::config::read_private_file).transpose()?;
-    let mut explicit = Vec::new();
-    if let Some(value) = data_dir {
-        explicit.push(Override::new("/data_dir", serde_json::json!(value)));
-    }
-    if let Some(value) = cli.bind {
-        explicit.push(Override::new("/bind", serde_json::json!(value)));
-    }
-    if let Some(value) = cli.development {
-        explicit.push(Override::new("/development", serde_json::json!(value)));
-    }
-    Ok(xcss::config::resolve_validated(
-        &Settings::default(),
-        bytes.as_deref(),
+    let mut loaded = xcss::config::resolve_validated(
+        &defaults,
+        Some(&bytes),
         &environment,
-        &explicit,
-        validate_intrinsic,
-    )?)
+        &[],
+        |value, source| {
+            let mut effective = value.clone();
+            effective.root = root.to_path_buf();
+            validate_intrinsic(&effective, source)
+        },
+    )?;
+    loaded.value.root = root.to_path_buf();
+    Ok(loaded)
+}
+
+pub(crate) fn validate_root(root: &Path) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        root.is_absolute()
+            && root != Path::new("/")
+            && !root.components().any(|part| matches!(
+                part,
+                std::path::Component::ParentDir | std::path::Component::CurDir
+            )),
+        "root must be a normalized absolute directory"
+    );
+    Ok(())
 }
 
 fn validate_intrinsic(
@@ -265,6 +258,35 @@ fn validate_intrinsic(
             return Err(invalid(field));
         }
     }
+    if value.root.is_absolute() {
+        let data = value
+            .data_dir
+            .as_deref()
+            .ok_or_else(|| invalid("/data_dir"))?;
+        let recordings = value
+            .recordings_directory
+            .clone()
+            .unwrap_or_else(|| data.join("recordings"));
+        for (field, selected) in [
+            ("/data_dir", data),
+            ("/recordings_directory", recordings.as_path()),
+        ] {
+            for name in [
+                "bin",
+                "libexec",
+                "share",
+                "config",
+                "logs",
+                "run",
+                "maintenance",
+            ] {
+                let protected = value.root.join(name);
+                if selected.starts_with(&protected) || protected.starts_with(selected) {
+                    return Err(invalid(field));
+                }
+            }
+        }
+    }
     if value.development && !value.bind.ip().is_loopback() {
         return Err(invalid("/bind"));
     }
@@ -275,9 +297,6 @@ fn validate_intrinsic(
         && (value.bind.ip() == value.media_callback_bind.ip() || value.bind.ip().is_unspecified())
     {
         return Err(invalid("/media_callback_bind"));
-    }
-    if xcss::client_ip::TrustedProxies::parse(&value.trusted_proxies).is_err() {
-        return Err(invalid("/trusted_proxies"));
     }
     if !matches!(
         value.log_level.as_str(),
@@ -330,6 +349,19 @@ fn validate_intrinsic(
 
 impl Settings {
     pub fn companion_paths(&self) -> anyhow::Result<(PathBuf, PathBuf, PathBuf)> {
+        for (selected, expected) in [
+            (&self.mediamtx_config, self.root.join("config/mediamtx.yml")),
+            (
+                &self.mediamtx_contract,
+                self.root.join("share/mediamtx.lock"),
+            ),
+            (&self.mediamtx_binary, self.root.join("bin/mediamtx")),
+        ] {
+            anyhow::ensure!(
+                selected.as_ref() == Some(&expected),
+                "MediaMTX files must use the fixed ROOT layout"
+            );
+        }
         Ok((
             self.mediamtx_config
                 .clone()
@@ -355,10 +387,13 @@ impl Settings {
         validate_development_bind(self.bind, self.development).map_err(anyhow::Error::msg)?;
         self.data_directory()?;
         self.companion_paths()?;
-        xcss::client_ip::TrustedProxies::parse(&self.trusted_proxies)?;
         validate_public_rtsp_base(&self.public_rtsp_publish_base_url, self.development)
             .map_err(anyhow::Error::msg)?;
-        if self.static_dir.is_some() && !self.development {
+        if self.static_dir.is_some()
+            && (!self.development
+                || !cfg!(debug_assertions)
+                || env!("XCOS_SOURCE_REVISION") != "unbound")
+        {
             return Err(
                 crate::CliFailure(xcss::server_cli::ErrorEnvelope::with_code(
                     xcss::server_cli::ErrorCode::new("invalid_development_override")
@@ -396,6 +431,7 @@ impl Settings {
             Ok(Duration::from_secs(value))
         };
         Ok(Config {
+            root: self.root.clone(),
             bind_addr: self.bind,
             media_callback_bind: self.media_callback_bind,
             database_url: format!("sqlite://{}", self.database()?.display()),
@@ -416,7 +452,6 @@ impl Settings {
             reconcile_interval: bounded(self.reconcile_interval_secs, 1, 3600)?,
             request_timeout: bounded(self.request_timeout_secs, 1, 300)?,
             static_dir: self.static_dir.clone(),
-            trusted_proxies: self.trusted_proxies.clone(),
         })
     }
 }
@@ -563,11 +598,11 @@ mod tests {
         for address in ["192.168.1.10:9080", "0.0.0.0:8080", "[fd00::10]:8080"] {
             let settings = Settings {
                 bind: address.parse().unwrap(),
-                data_dir: Some("/var/lib/isarmg/xcos".into()),
+                data_dir: Some("/opt/isarmg/xcos/state".into()),
                 public_rtsp_publish_base_url: "rtsps://xcos.example.org:8322".into(),
                 ..Settings::default()
             };
-            let loaded = xcss::config::resolve_validated(
+            let mut loaded = xcss::config::resolve_validated(
                 &Settings::default(),
                 Some(&serde_json::to_vec(&settings).unwrap()),
                 &[],
@@ -575,6 +610,7 @@ mod tests {
                 validate_intrinsic,
             )
             .unwrap();
+            loaded.value.root = settings.root.clone();
             loaded.value.validate_configuration().unwrap();
             assert_eq!(loaded.value.bind, settings.bind);
             assert!(!loaded.value.development);
@@ -676,30 +712,28 @@ mod tests {
     #[test]
     fn an_explicit_missing_config_is_never_ignored() {
         let directory = tempfile::tempdir().unwrap();
-        assert!(load(
-            Some(&directory.path().join("missing.json")),
-            None,
-            &Overrides::default()
-        )
-        .is_err());
+        assert!(load_at_root(directory.path(), &directory.path().join("missing.json")).is_err());
     }
 
     #[test]
-    fn companion_paths_do_not_depend_on_install_layout() {
+    fn companion_files_are_bound_to_the_selected_root() {
+        let root = PathBuf::from("/srv/custom/xcos");
         let settings = Settings {
-            mediamtx_config: Some("/srv/custom/media.yml".into()),
-            mediamtx_contract: Some("/srv/custom/pinned.lock".into()),
-            mediamtx_binary: Some("/srv/custom/media-server".into()),
+            root: root.clone(),
+            mediamtx_config: Some(root.join("config/mediamtx.yml")),
+            mediamtx_contract: Some(root.join("share/mediamtx.lock")),
+            mediamtx_binary: Some(root.join("bin/mediamtx")),
             ..Settings::default()
         };
         assert_eq!(
-            settings.companion_paths().unwrap(),
-            (
-                "/srv/custom/media.yml".into(),
-                "/srv/custom/pinned.lock".into(),
-                "/srv/custom/media-server".into()
-            )
+            settings.companion_paths().unwrap().2,
+            root.join("bin/mediamtx")
         );
+        let invalid = Settings {
+            mediamtx_binary: Some("/usr/bin/mediamtx".into()),
+            ..settings
+        };
+        assert!(invalid.companion_paths().is_err());
     }
 
     #[test]
@@ -710,12 +744,12 @@ mod tests {
         let path = directory.path().join("config.json");
         std::fs::write(&path, b"{}").unwrap();
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
-        assert!(load(Some(&path), None, &Overrides::default()).is_ok());
+        assert!(load_at_root(directory.path(), &path).is_ok());
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
-        assert!(load(Some(&path), None, &Overrides::default()).is_err());
+        assert!(load_at_root(directory.path(), &path).is_err());
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
         std::fs::set_permissions(directory.path(), std::fs::Permissions::from_mode(0o755)).unwrap();
-        assert!(load(Some(&path), None, &Overrides::default()).is_err());
+        assert!(load_at_root(directory.path(), &path).is_err());
     }
 
     #[test]

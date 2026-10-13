@@ -43,7 +43,7 @@ pathDefaults:
   sourceOnDemandCloseAfter: 15s
   recordFormat: fmp4
   # xcos media-config supplies the configured recording path.
-  recordPath: /var/lib/isarmg/xcos/recordings/%path/%Y-%m-%d_%H-%M-%S-%f
+  recordPath: /opt/isarmg/xcos/state/recordings/%path/%Y-%m-%d_%H-%M-%S-%f
   recordPartDuration: 1s
   recordMaxPartSize: 100M
   recordSegmentDuration: 15m

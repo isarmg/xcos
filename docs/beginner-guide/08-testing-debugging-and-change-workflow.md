@@ -15,12 +15,12 @@ npm run check:xcss
 npm run typecheck
 npm run build
 cd ../..
-for script in install.sh scripts/*.sh deploy/*.sh deploy/xcosctl; do
+for script in scripts/*.sh; do
   bash -n "$script"
 done
 ```
 
-随后运行 `scripts/lifecycle-test.sh` 和 `scripts/relocated-smoke-test.sh`。真实 smoke 覆盖 Rust、Vite、SQLite、
+随后运行 `tests/deployment.rs` 和 `scripts/check-deployment.sh`。真实 smoke 覆盖 Rust、Vite、SQLite、
 MediaMTX 及 hashed assets，是静态检查不能替代的证据。
 
 ## 8.2 分层定位

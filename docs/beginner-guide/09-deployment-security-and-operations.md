@@ -9,7 +9,7 @@
 ## 9.2 上线流程
 
 验证 tag/归档/checksum；安装已验证的完整程序 payload；设置 ownership/mode；准备当前组合状态和 external key；运行
-显式 `verify-release` 与 离线check；确认已有 HTTPS 网关、RTSPS TLS 和 ICE 路由；通过 systemd 启动
+显式 xssi 签名包校验 与 离线check；确认已有 HTTPS 网关、RTSPS TLS 和 ICE 路由；通过 systemd 启动
 MediaMTX 和 Xcos；检查两个 readiness、登录、摄像头读取和实验播放。任一步失败停止，不覆盖原目录。
 
 ## 9.3 配置和 Secret

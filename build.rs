@@ -18,6 +18,13 @@ fn locked_xcss_revision(lockfile: &str) -> String {
             locked.to_owned()
         })
         .collect::<BTreeSet<_>>();
+    if revisions.is_empty()
+        && std::env::var("XCOS_SOURCE_REVISION").unwrap_or_else(|_| "unbound".into()) == "unbound"
+        && std::env::var("PROFILE").is_ok_and(|profile| profile == "debug")
+        && std::env::var_os("XSSI_BUILD_METADATA_DIR").is_none()
+    {
+        return "unbound".into();
+    }
     assert_eq!(
         revisions.len(),
         1,
@@ -27,6 +34,7 @@ fn locked_xcss_revision(lockfile: &str) -> String {
 }
 
 fn main() {
+    println!("cargo:rerun-if-env-changed=XSSI_BUILD_METADATA_DIR");
     println!("cargo:rerun-if-env-changed=XCSS_WEB_DIST");
     println!("cargo:rerun-if-env-changed=XCOS_SOURCE_REVISION");
 
@@ -37,7 +45,9 @@ fn main() {
     );
     let source_revision = env::var("XCOS_SOURCE_REVISION").unwrap_or_else(|_| "unbound".to_owned());
     assert!(
-        source_revision == "unbound"
+        (source_revision == "unbound"
+            && env::var("PROFILE").is_ok_and(|profile| profile == "debug")
+            && env::var_os("XSSI_BUILD_METADATA_DIR").is_none())
             || (source_revision.len() == 40
                 && source_revision
                     .bytes()
@@ -69,4 +79,99 @@ fn main() {
         .map(PathBuf::from)
         .unwrap_or_else(|| root.join("web/dist"));
     xcss::web_assets::build::generate(&web_root).expect("build current embedded Web assets");
+    emit_offline_metadata();
+}
+
+fn emit_offline_metadata() {
+    use sha2::{Digest, Sha256};
+    use xcss::contracts::{StateContract, StateResource, StateResourceKind, StateSchemaIdentity};
+    let Some(destination) = std::env::var_os("XSSI_BUILD_METADATA_DIR") else {
+        return;
+    };
+    let destination = std::path::PathBuf::from(destination);
+    assert!(
+        destination.is_absolute() && destination.is_dir(),
+        "explicit metadata destination must exist and be absolute"
+    );
+    let revision = std::env::var("XCOS_SOURCE_REVISION")
+        .expect("release metadata requires a source-bound build");
+    let hash = "4d20083821ff39d78792d0795b26206e851c2e6d0523109ee49cfc06666a1d4a";
+    let schema = xcss::contracts::SchemaIdentity::new("xcos", "xcos-db-v2", 2, hash)
+        .expect("schema identity");
+    let contract = StateContract {
+        contract_version: xcss::contracts::STATE_CONTRACT_VERSION,
+        application: "xcos".into(),
+        application_version: std::env::var("CARGO_PKG_VERSION").unwrap(),
+        source_revision: revision.clone(),
+        schema: Some(StateSchemaIdentity {
+            revision: 2,
+            sha256: hash.into(),
+        }),
+        maintenance_locks: vec![
+            ".state-instance.lock".into(),
+            ".state-maintenance.lock".into(),
+        ],
+        resources: vec![
+            StateResource {
+                name: "state".into(),
+                kind: StateResourceKind::DataTree,
+                required: true,
+            },
+            StateResource {
+                name: "recordings".into(),
+                kind: StateResourceKind::Recordings,
+                required: true,
+            },
+            StateResource {
+                name: "config".into(),
+                kind: StateResourceKind::Configuration,
+                required: true,
+            },
+        ],
+        external_requirements: vec![],
+        companion_contracts: {
+            let lock = include_str!("config/mediamtx.lock");
+            let get = |key: &str| {
+                lock.lines()
+                    .find_map(|line| line.strip_prefix(key))
+                    .expect("media lock")
+                    .to_owned()
+            };
+            vec![xcss::contracts::CompanionContract {
+                name: "mediamtx".into(),
+                version: get("version="),
+                platform: get("platform="),
+                sha256: get("sha256="),
+            }]
+        },
+    };
+    contract.validate().expect("current state contract");
+    let bytes = serde_json::to_vec(&contract).unwrap();
+    let digest = Sha256::digest(&bytes)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+    let identity = xcss::contracts::ReleaseIdentity {
+        product: "xcos".into(),
+        version: std::env::var("CARGO_PKG_VERSION").unwrap(),
+        source_revision: revision,
+        target: xcss::server_target::SERVER_TARGET_TRIPLE.into(),
+        state_contract_sha256: digest,
+    };
+    identity.validate().expect("release identity");
+    std::fs::write(
+        destination.join("xcos-identity.json"),
+        serde_json::to_vec(&identity).unwrap(),
+    )
+    .unwrap();
+    std::fs::write(
+        destination.join("xcos-schema.json"),
+        serde_json::to_vec(&schema).unwrap(),
+    )
+    .unwrap();
+    std::fs::write(destination.join("xcos-state-contract.json"), bytes).unwrap();
+    let generated = std::path::PathBuf::from(std::env::var_os("OUT_DIR").unwrap())
+        .join("xcss-web-assets.rs.manifest.json");
+    std::fs::copy(generated, destination.join("xcos-web-assets.json"))
+        .expect("copy exact embedded Web manifest");
 }

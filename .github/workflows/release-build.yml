@@ -11,7 +11,7 @@ jobs:
     permissions:
       contents: read
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - name: Check out the exact annotated release tag
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -55,10 +55,25 @@ jobs:
           check-latest: false
       - name: Install locked Web dependencies
         run: npm ci --prefix web
-      - name: Build and verify the Server archive
+      - name: Build and verify the signed Server archive
+        shell: bash
+        env:
+          PACKAGE_SIGNING_KEY: ${{ secrets.XSSI_PACKAGE_SIGNING_KEY }}
+          XSSI_REPOSITORY_TOKEN: ${{ secrets.XSSI_REPOSITORY_TOKEN }}
         run: |
+          set -euo pipefail
+          export XSSI_SIGNING_KEY="$RUNNER_TEMP/package-signing.pem"
+          umask 077
+          python3 - <<'PYKEY'
+          import os,pathlib
+          key=os.environ.pop("PACKAGE_SIGNING_KEY")
+          if not key: raise SystemExit("XSSI_PACKAGE_SIGNING_KEY is required")
+          pathlib.Path(os.environ["XSSI_SIGNING_KEY"]).write_text(key)
+          PYKEY
+          unset PACKAGE_SIGNING_KEY
+          trap 'rm -f -- "$XSSI_SIGNING_KEY"' EXIT
           mkdir -p "$RUNNER_TEMP/release-output"
-          bash scripts/package-release.sh "$RUNNER_TEMP/release-output"
+          bash scripts/package-release.sh --output-dir "$RUNNER_TEMP/release-output"
       - name: Retain verified release inputs for automatic publication
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:

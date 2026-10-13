@@ -7,11 +7,13 @@ mod lease;
 mod paths;
 
 pub(crate) use connection::{
-    bounded_columns, connect_existing, current_validation_snapshot, history_connection,
-    history_error, open_pool, validate_current_database,
+    bounded_columns, current_validation_snapshot, history_connection, history_error, open_pool,
+    open_runtime_pool,
 };
 #[cfg(test)]
-pub(crate) use connection::{initialize_current_database, initialize_test_pool};
+pub(crate) use connection::{
+    initialize_current_database, initialize_test_pool, validate_current_database,
+};
 pub(crate) use initialization::initialize_with_administrator;
 pub(crate) use lease::{
     validate_global_lease_schema_sql, validate_global_lease_values, GlobalLeaseState,
