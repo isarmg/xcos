@@ -27,7 +27,7 @@ pub(crate) const OPERATION_NAMESPACE: &str = "xcos.media-reconciliation";
 const CAMERA_SELECT_INTERNAL: &str = "SELECT id, name, location, source_kind, client_id, \
     adapter_kind, manufacturer, model, firmware_version, serial_number, capabilities_json, \
     streams_json, health_message, device_status, has_sub_stream, enabled, record_enabled, \
-    storage_mode, status, last_seen_at, \
+    storage_mode, status, last_seen_at, last_observed_at, observation_expires_at, \
     created_at, updated_at FROM cameras";
 #[derive(Clone, Debug, Serialize)]
 pub struct MediaOperationView {
@@ -1431,6 +1431,34 @@ mod tests {
         assert_eq!(retry_delay(1), Duration::seconds(2));
         assert_eq!(retry_delay(8), Duration::seconds(256));
         assert_eq!(retry_delay(100), Duration::seconds(256));
+    }
+
+    #[tokio::test]
+    async fn reconciler_camera_projection_loads_current_observation_fields() {
+        let (_directory, pool, operation_id, _) = lease_test_database().await;
+        let operation = get_operation(&pool, &operation_id).await.unwrap();
+        let observed_at = Utc::now();
+        let expires_at = observed_at + Duration::seconds(60);
+        sqlx::query(
+            "UPDATE cameras SET last_observed_at = ?, observation_expires_at = ? WHERE id = ?",
+        )
+        .bind(observed_at)
+        .bind(expires_at)
+        .bind(operation.camera_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // Both operation application and drift observation use this projection.
+        let camera = sqlx::query_as::<_, CameraRecord>(sqlx::AssertSqlSafe(format!(
+            "{CAMERA_SELECT_INTERNAL} WHERE id = ?"
+        )))
+        .bind(operation.camera_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(camera.last_observed_at, Some(observed_at));
+        assert_eq!(camera.observation_expires_at, Some(expires_at));
     }
 
     async fn claim_for_test(pool: &SqlitePool) -> (MediaOperationView, Operation) {
