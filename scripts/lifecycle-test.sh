@@ -115,7 +115,8 @@ chmod 0755 "$TEST_ROOT/fake-mediamtx"
 FAKE_MEDIA_SHA="$(sha256sum "$TEST_ROOT/fake-mediamtx" | awk '{print $1}')"
 printf '%s\n' version=v1.20.0 platform=linux_amd64 "sha256=$FAKE_MEDIA_SHA" >"$SOURCE_FIXTURE/config/mediamtx.lock"
 export XCOS_TEST_SOURCE=0123456789abcdef0123456789abcdef01234567
-export XCOS_TEST_STATIC="$(printf '%s' '{"format":"deployment-fixture"}' | sha256sum | awk '{print $1}')"
+XCOS_TEST_STATIC="$(printf '%s' '{"format":"deployment-fixture"}' | sha256sum | awk '{print $1}')"
+export XCOS_TEST_STATIC
 cat >"$TEST_ROOT/fake-xcos" <<'APP'
 #!/usr/bin/env bash
 set -euo pipefail

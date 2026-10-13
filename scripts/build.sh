@@ -160,9 +160,7 @@ install -m 0755 -- "$APP_STAGE" "$STAGE/bin/xcos"
 install -m 0755 -- "$MEDIA_SOURCE" "$STAGE/bin/mediamtx"
 install -m 0644 -- "$SOURCE_ROOT/config/mediamtx.yml" "$STAGE/config/mediamtx.yml"
 install -m 0644 -- "$SOURCE_ROOT/config/mediamtx.lock" "$STAGE/config/mediamtx.lock"
-for script in xcosctl; do
-  install -m 0755 -- "$SOURCE_ROOT/deploy/$script" "$STAGE/deploy/$script"
-done
+install -m 0755 -- "$SOURCE_ROOT/deploy/xcosctl" "$STAGE/deploy/xcosctl"
 for unit in xcos.service xcos-mediamtx.service; do
   install -m 0644 -- "$SOURCE_ROOT/deploy/$unit" "$STAGE/systemd/$unit"
 done

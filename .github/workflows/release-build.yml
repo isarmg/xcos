@@ -18,6 +18,34 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+      - name: Verify the pinned xcss product manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          readarray -t foundation_identity < <(python3 - <<'PY'
+          import tomllib
+          with open("xcss-product.toml", "rb") as stream:
+              foundation = tomllib.load(stream)["foundation"]
+          print(foundation["version"])
+          print(foundation["git_rev"])
+          PY
+          )
+          foundation_root="$RUNNER_TEMP/xcss"
+          [[ "${foundation_identity[1]}" =~ ^[0-9a-f]{40}$ ]]
+          git init --quiet "$foundation_root"
+          git -C "$foundation_root" remote add origin https://github.com/isarmg/xcss.git
+          git -C "$foundation_root" fetch --quiet --depth=1 origin "${foundation_identity[1]}"
+          git -C "$foundation_root" checkout --quiet --detach FETCH_HEAD
+          test "$(git -C "$foundation_root" rev-parse HEAD)" = "${foundation_identity[1]}"
+          python3 - "$foundation_root/Cargo.toml" "${foundation_identity[0]}" <<'PY'
+          import sys, tomllib
+          with open(sys.argv[1], "rb") as stream:
+              package = tomllib.load(stream)["package"]
+          assert package["name"] == "xcss"
+          assert package["version"] == sys.argv[2], "pinned xcss version differs from manifest"
+          PY
+          python3 "$foundation_root/scripts/xcss-conformance.py" \
+            verify-manifest --product-root "$GITHUB_WORKSPACE"
       - name: Install pinned Rust
         run: rustup toolchain install 1.99.0 --profile minimal
       - name: Install pinned Node.js
@@ -27,7 +55,7 @@ jobs:
           check-latest: false
       - name: Install locked Web dependencies
         run: npm ci --prefix web
-      - name: Build and verify the immutable Server archive
+      - name: Build and verify the Server archive
         run: |
           mkdir -p "$RUNNER_TEMP/release-output"
           bash scripts/package-release.sh "$RUNNER_TEMP/release-output"
