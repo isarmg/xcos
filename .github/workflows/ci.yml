@@ -172,6 +172,15 @@ jobs:
             bash -n "$script"
           done
           shellcheck "${scripts[@]}"
+      - name: Install pinned Node.js for deployment test inputs
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 26.7.0
+          check-latest: false
+      - name: Build embedded Web inputs for deployment tests
+        run: |
+          npm ci --prefix web
+          web/node_modules/.bin/xcss-build-server --config "$PWD/xcss-web-build.json" --mode development --web-only --no-install
       - name: Verify systemd controls and release packaging
         run: ./scripts/check-deployment.sh
       - name: Exercise the real pinned companion configuration
