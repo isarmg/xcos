@@ -158,8 +158,12 @@ pub(super) async fn dated_cursor(
 ) -> Result<Option<(String, Uuid)>> {
     let Some(id) = id else { return Ok(None) };
     let sql = match table {
-        "events" => "SELECT CASE WHEN length(CAST(created_at AS BLOB)) <= 128 THEN created_at END FROM events WHERE id = ? AND created_at >= ? AND created_at < ?",
-        "audit" => "SELECT CASE WHEN length(CAST(created_at AS BLOB)) <= 128 THEN created_at END FROM audit_logs WHERE id = ? AND created_at >= ? AND created_at < ?",
+        "events" => {
+            "SELECT CASE WHEN length(CAST(created_at AS BLOB)) <= 128 THEN created_at END FROM events WHERE id = ? AND created_at >= ? AND created_at < ?"
+        }
+        "audit" => {
+            "SELECT CASE WHEN length(CAST(created_at AS BLOB)) <= 128 THEN created_at END FROM audit_logs WHERE id = ? AND created_at >= ? AND created_at < ?"
+        }
         _ => unreachable!("only static log tables are accepted"),
     };
     let timestamp: Option<Option<String>> = sqlx::query_scalar(sql)
@@ -364,14 +368,57 @@ pub(super) async fn acknowledge_event_in(
     Ok(())
 }
 
+async fn event_stream_session_active(state: &AppState, token_hash: [u8; 32]) -> bool {
+    use xcss::admin_core::{AdministratorStore as _, SessionStatus};
+    let Ok(now) = u64::try_from(Utc::now().timestamp_micros()) else {
+        return false;
+    };
+    // Read through the common session store/status contract. Passive SSE activity
+    // must not touch last_seen or renew the administrator's idle deadline.
+    state
+        .administrator
+        .store()
+        .session_by_token_hash(token_hash)
+        .await
+        .ok()
+        .flatten()
+        .is_some_and(|found| {
+            found.session.status(&found.administrator, now) == SessionStatus::Active
+        })
+}
+
 pub(super) async fn event_stream(
     _user: CurrentUser,
     State(state): State<AppState>,
-) -> Sse<impl Stream<Item = std::result::Result<Event, Infallible>>> {
+    headers: HeaderMap,
+) -> Result<Sse<impl Stream<Item = std::result::Result<Event, Infallible>>>> {
+    // CurrentUser already verified the canonical single Cookie header. Keep only
+    // its hash for subsequent read-only checks, never the credential itself.
+    let name = xcss::admin_core::session_cookie_name("xcos", state.administrator_origin)
+        .map_err(|_| AppError::Internal("session cookie contract is invalid".into()))?;
+    let token = headers
+        .get(axum::http::header::COOKIE)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| xcss::admin_auth::parse_cookie_value(value, &name))
+        .ok_or(AppError::Unauthorized)?;
+    let token_hash = xcss::admin_auth::token_hash(token);
     let mut receiver = state.events.subscribe();
     let output = stream! {
+        let mut recheck = tokio::time::interval_at(tokio::time::Instant::now() + Duration::from_secs(15), Duration::from_secs(15));
         loop {
-            let received=tokio::select! {_ = state.scope.shutdown.cancelled()=>break,received=receiver.recv()=>received};
+            let received = tokio::select! {
+                _ = state.scope.shutdown.cancelled() => break,
+                _ = recheck.tick() => {
+                    if !event_stream_session_active(&state, token_hash).await { break; }
+                    yield Ok(Event::default().comment("keep-alive"));
+                    continue;
+                },
+                received = receiver.recv() => received,
+            };
+            // Recheck immediately before releasing any protected event, including
+            // buffered events after logout, account changes or session expiry.
+            if !event_stream_session_active(&state, token_hash).await { break; }
+            recheck.reset(); // The existing heartbeat is only needed while no events arrive.
             match received {
                 Ok(event) => {
                     if let Ok(payload) = Event::default().event("system-event").json_data(event) {
@@ -391,11 +438,7 @@ pub(super) async fn event_stream(
             }
         }
     };
-    Sse::new(output).keep_alive(
-        axum::response::sse::KeepAlive::new()
-            .interval(Duration::from_secs(15))
-            .text("keep-alive"),
-    )
+    Ok(Sse::new(output))
 }
 
 #[derive(Deserialize)]

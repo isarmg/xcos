@@ -347,9 +347,11 @@ async fn history_pages_preserve_equal_timestamp_rows_and_reject_invalid_cursors(
     assert_eq!(audit, events);
     assert!(cursor_id(Some("malformed"), "2026-09-23", "events").is_err());
     assert!(cursor_id(Some(&"A".repeat(513)), "2026-09-23", "events").is_err());
-    assert!(event_logs_for_day(&pool, start, end, Some(Uuid::new_v4()))
-        .await
-        .is_err());
+    assert!(
+        event_logs_for_day(&pool, start, end, Some(Uuid::new_v4()))
+            .await
+            .is_err()
+    );
 }
 
 #[test]
@@ -357,9 +359,11 @@ fn generated_authorization_codes_have_the_shared_format() {
     for _ in 0..64 {
         let value = random_authorization_code().unwrap();
         assert_eq!(value.len(), 36);
-        assert!(value
-            .bytes()
-            .all(|byte| byte.is_ascii_digit() || byte.is_ascii_lowercase()));
+        assert!(
+            value
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || byte.is_ascii_lowercase())
+        );
         validate_authorization_code(&value).unwrap();
     }
 }
@@ -594,9 +598,11 @@ async fn production_ingress_supports_https_origin_through_a_remote_gateway() {
     let body = axum::body::to_bytes(clients.into_body(), 4096)
         .await
         .unwrap();
-    assert!(std::str::from_utf8(&body)
-        .unwrap()
-        .contains("gateway-camera-client"));
+    assert!(
+        std::str::from_utf8(&body)
+            .unwrap()
+            .contains("gateway-camera-client")
+    );
 
     let callback = app
         .clone()
@@ -1023,10 +1029,12 @@ async fn command_admission_preserves_stop_capacity_and_unknown_receipts() {
     };
     assert!(validate_command_result(&bad).is_err());
     // The obsolete result shape is rejected even with a current UUID.
-    assert!(serde_json::from_value::<DeviceCommandResult>(
-        json!({"id":command,"status":"failed","error":"secret"})
-    )
-    .is_err());
+    assert!(
+        serde_json::from_value::<DeviceCommandResult>(
+            json!({"id":command,"status":"failed","error":"secret"})
+        )
+        .is_err()
+    );
     pool.close().await;
 }
 
@@ -1536,18 +1544,20 @@ fn route_local_required_fields_cannot_be_omitted() {
     assert!(serde_json::from_value::<RecordingQuery>(json!({})).is_err());
     assert!(serde_json::from_value::<PlayRecordingQuery>(json!({})).is_err());
     assert!(server_log_range(None, None, None).is_err());
-    assert!(serde_json::from_value::<MediaAuthRequest>(json!({
-        "user": "",
-        "password": "",
-        "token": "token",
-        "ip": "127.0.0.1",
-        "action": "read",
-        "path": "camera/main",
-        "protocol": "webrtc",
-        "id": Uuid::new_v4(),
-        "query": ""
-    }))
-    .is_err());
+    assert!(
+        serde_json::from_value::<MediaAuthRequest>(json!({
+            "user": "",
+            "password": "",
+            "token": "token",
+            "ip": "127.0.0.1",
+            "action": "read",
+            "path": "camera/main",
+            "protocol": "webrtc",
+            "id": Uuid::new_v4(),
+            "query": ""
+        }))
+        .is_err()
+    );
 }
 
 #[test]
@@ -1884,4 +1894,176 @@ async fn router_ignores_forwarded_addresses_and_preserves_error_context() {
         assert!(response.headers().contains_key("x-request-id"));
     }
     pool.close().await;
+}
+
+#[tokio::test]
+async fn established_event_stream_stops_after_session_logout_or_expiry() {
+    use axum::http::Request;
+    use futures_util::StreamExt as _;
+    use tower::ServiceExt as _;
+    for ending in [
+        "logout",
+        "idle_expiry",
+        "absolute_expiry",
+        "account_disabled",
+        "session_version_changed",
+        "database_unavailable",
+        "logout_lagged",
+        "logout_idle",
+    ] {
+        let directory = tempfile::tempdir().unwrap();
+        let pool = crate::sqlite::initialize_test_pool(&format!(
+            "sqlite://{}",
+            directory.path().join("stream.sqlite3").display()
+        ))
+        .await
+        .unwrap();
+        let state = test_state(pool.clone());
+        crate::test_support::seed_administrator(
+            &state.administrator,
+            "admin",
+            "ordinary-stream-fixture-password",
+            1,
+        )
+        .await
+        .unwrap();
+        let app = xcss::admin_axum::administrator_router(
+            "xcos",
+            state.administrator_origin,
+            state.administrator.clone(),
+        )
+        .unwrap()
+        .merge(
+            Router::new()
+                .route("/api/v1/events/stream", get(event_stream))
+                .with_state(state.clone()),
+        );
+        let request = |method: &str, path: &str, body: String| {
+            Request::builder()
+                .method(method)
+                .uri(path)
+                .header("host", "127.0.0.1:8080")
+                .header("origin", "http://127.0.0.1:8080")
+                .header("sec-fetch-site", "same-origin")
+                .header("content-type", "application/json")
+                .body(Body::from(body))
+                .unwrap()
+        };
+        let login = app
+            .clone()
+            .oneshot(request(
+                "POST",
+                xcss::contracts::ADMIN_LOGIN_PATH,
+                json!({"username":"admin","password":"ordinary-stream-fixture-password"})
+                    .to_string(),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(login.status(), StatusCode::OK);
+        let cookie = login.headers()["set-cookie"]
+            .to_str()
+            .unwrap()
+            .split(';')
+            .next()
+            .unwrap()
+            .to_owned();
+        let session: xcss::contracts::AdministratorSession =
+            serde_json::from_slice(&axum::body::to_bytes(login.into_body(), 4096).await.unwrap())
+                .unwrap();
+        let mut subscribe = request("GET", "/api/v1/events/stream", String::new());
+        subscribe
+            .headers_mut()
+            .insert("cookie", cookie.parse().unwrap());
+        let response = app.clone().oneshot(subscribe).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let mut stream = response.into_body().into_data_stream();
+        sqlx::query("UPDATE _common_admin_sessions SET created_at_micros=created_at_micros-120000000,last_seen_at_micros=created_at_micros-120000000").execute(&pool).await.unwrap();
+        let before_activity: (i64, i64) = sqlx::query_as(
+            "SELECT last_seen_at_micros,idle_expires_at_micros FROM _common_admin_sessions",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let event = |message: &str| EventRecord {
+            id: Uuid::new_v4(),
+            camera_id: Some(Uuid::new_v4()),
+            kind: "camera.offline".into(),
+            severity: "warning".into(),
+            message: message.into(),
+            details: json!({"camera":"private-camera"}),
+            acknowledged_at: None,
+            acknowledged_by: None,
+            created_at: Utc::now(),
+        };
+        assert!(state.events.send(event("before-session-end")).is_ok());
+        let first = tokio::time::timeout(Duration::from_secs(2), stream.next())
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert!(String::from_utf8_lossy(&first).contains("before-session-end"));
+        let after_activity: (i64, i64) = sqlx::query_as(
+            "SELECT last_seen_at_micros,idle_expires_at_micros FROM _common_admin_sessions",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            after_activity, before_activity,
+            "passive events must not extend idle authorization"
+        );
+        if ending.starts_with("logout") {
+            let mut logout = request("POST", xcss::contracts::ADMIN_LOGOUT_PATH, String::new());
+            logout
+                .headers_mut()
+                .insert("cookie", cookie.parse().unwrap());
+            logout.headers_mut().insert(
+                xcss::admin_auth::CSRF_HEADER,
+                session.csrf_token.parse().unwrap(),
+            );
+            assert_eq!(
+                app.oneshot(logout).await.unwrap().status(),
+                StatusCode::NO_CONTENT
+            );
+        } else if ending == "database_unavailable" {
+            pool.close().await;
+        } else {
+            let sql = match ending {
+                "idle_expiry" => {
+                    "UPDATE _common_admin_sessions SET idle_expires_at_micros=created_at_micros+1"
+                }
+                "absolute_expiry" => {
+                    "UPDATE _common_admin_sessions SET idle_expires_at_micros=created_at_micros+1,absolute_expires_at_micros=created_at_micros+1"
+                }
+                "account_disabled" => "UPDATE _common_administrators SET active=0",
+                "session_version_changed" => {
+                    "UPDATE _common_administrators SET session_version=session_version+1"
+                }
+                _ => unreachable!(),
+            };
+            sqlx::query(sql).execute(&pool).await.unwrap();
+        }
+        if ending != "logout_idle" {
+            for _ in 0..if ending == "logout_lagged" { 512 } else { 1 } {
+                assert!(
+                    state
+                        .events
+                        .send(event("private-event-after-session-end"))
+                        .is_ok()
+                );
+            }
+        }
+        let next = tokio::time::timeout(
+            Duration::from_secs(if ending == "logout_idle" { 17 } else { 2 }),
+            stream.next(),
+        )
+        .await
+        .unwrap();
+        assert!(
+            next.is_none(),
+            "{ending}: ended session still received protected event data"
+        );
+        drop(stream);
+        pool.close().await;
+    }
 }
