@@ -305,6 +305,39 @@ jobs:
         with:
           path: ${{ runner.temp }}/install-inventory-tools
           key: ${{ steps.inventory_cache.outputs.cache-primary-key }}
+      - name: Identify exact media-tool build environment
+        id: media_environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          fingerprint="$(bash scripts/prepare-installed-media-tools.sh --fingerprint)"
+          printf 'fingerprint=%s\n' "$fingerprint" >> "$GITHUB_OUTPUT"
+      - name: Restore exact test-only media tools
+        id: media_cache
+        uses: actions/cache/restore@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        with:
+          path: ${{ runner.temp }}/install-media-tools
+          # No fallback keys; bind source, flags, image, compiler and OpenSSL.
+          key: xcos-installed-media-v1-${{ runner.os }}-${{ runner.arch }}-ffmpeg-9.0.2-8c3850283eb25fa026482078a04051e0be17347b09ef81a0849bec15a96e002e-${{ steps.media_environment.outputs.fingerprint }}-${{ hashFiles('scripts/prepare-installed-media-tools.sh') }}
+      - name: Build or verify pinned media tools and fixture
+        id: media_tools
+        shell: bash
+        env:
+          MEDIA_CACHE_HIT: ${{ steps.media_cache.outputs.cache-hit }}
+        run: |
+          set -euo pipefail
+          tools="$RUNNER_TEMP/install-media-tools"
+          if [[ "$MEDIA_CACHE_HIT" != true ]]; then
+            # Reject a prefix restore too; only an exact cache hit is reusable.
+            [[ ! -e "$tools" && ! -L "$tools" ]]
+          fi
+          bash scripts/prepare-installed-media-tools.sh "$tools"
+      - name: Save verified test-only media tools
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.media_cache.outputs.cache-hit != 'true' && steps.media_tools.outcome == 'success' }}
+        uses: actions/cache/save@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        with:
+          path: ${{ runner.temp }}/install-media-tools
+          key: ${{ steps.media_cache.outputs.cache-primary-key }}
       - name: Install locked frontend dependencies
         run: npm ci --prefix web
       - name: Build the source-bound release Server once
@@ -342,6 +375,7 @@ jobs:
           [[ ${#candidates[@]} == 1 && -f "${candidates[0]}" ]]
           sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_ENVIRONMENT="$RUNNER_ENVIRONMENT" \
             LIFECYCLE_DIAGNOSTICS="$RUNNER_TEMP/install-diagnostics" \
+            XCOS_MEDIA_TOOLS="$RUNNER_TEMP/install-media-tools" \
             python3 -I -B "$installer/tests/installed_lifecycle.py" \
             --adapter "$GITHUB_WORKSPACE/scripts/installed-lifecycle-adapter.py" "${candidates[0]}" "$GITHUB_SHA"
       - name: Retain redacted installation lifecycle diagnostics

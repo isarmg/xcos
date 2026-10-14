@@ -62,6 +62,23 @@ class CandidateWorkflow(unittest.TestCase):
         self.assertIn('if: ${{ always() }}', INSTALLED)
         self.assertIn('path: ${{ runner.temp }}/install-diagnostics', INSTALLED)
 
+    def test_media_tools_stay_external_exact_and_main_saved(self):
+        script = (ROOT / 'scripts/prepare-installed-media-tools.sh').read_text()
+        self.assertIn('XCOS_MEDIA_TOOLS="$RUNNER_TEMP/install-media-tools"', INSTALLED)
+        self.assertIn('steps.media_environment.outputs.fingerprint', INSTALLED)
+        self.assertIn('steps.media_cache.outputs.cache-primary-key', INSTALLED)
+        self.assertNotIn('restore-keys:', INSTALLED)
+        self.assertIn('https://ffmpeg.org/releases/ffmpeg-9.0.2.tar.xz', script)
+        self.assertIn('8c3850283eb25fa026482078a04051e0be17347b09ef81a0849bec15a96e002e', script)
+        self.assertIn('a25897fd13ef46df7c6963a2567b4f320beb9461', script)
+        self.assertIn('1dbdf9dc523ea62f20e44825ac9012744934435f78f75fcfad4df75cbb7544b9', script)
+        for flag in ('--enable-openssl', '--disable-autodetect', '--disable-encoders',
+                     '--disable-avdevice', '--disable-hwaccels', '--enable-decoder=h264'):
+            self.assertIn(flag, script)
+        for name in ('scripts/stage-product.sh', 'scripts/package-installed-candidate.sh',
+                     'scripts/package-release.sh'):
+            self.assertNotIn('XCOS_MEDIA_TOOLS', (ROOT / name).read_text())
+
     def test_formal_release_still_requires_current_annotated_tag(self):
         text = (ROOT / 'scripts/package-release.sh').read_text()
         self.assertIn('cat-file -t "refs/tags/v$version"', text)
