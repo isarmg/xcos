@@ -347,11 +347,9 @@ async fn history_pages_preserve_equal_timestamp_rows_and_reject_invalid_cursors(
     assert_eq!(audit, events);
     assert!(cursor_id(Some("malformed"), "2026-09-23", "events").is_err());
     assert!(cursor_id(Some(&"A".repeat(513)), "2026-09-23", "events").is_err());
-    assert!(
-        event_logs_for_day(&pool, start, end, Some(Uuid::new_v4()))
-            .await
-            .is_err()
-    );
+    assert!(event_logs_for_day(&pool, start, end, Some(Uuid::new_v4()))
+        .await
+        .is_err());
 }
 
 #[test]
@@ -359,11 +357,9 @@ fn generated_authorization_codes_have_the_shared_format() {
     for _ in 0..64 {
         let value = random_authorization_code().unwrap();
         assert_eq!(value.len(), 36);
-        assert!(
-            value
-                .bytes()
-                .all(|byte| byte.is_ascii_digit() || byte.is_ascii_lowercase())
-        );
+        assert!(value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || byte.is_ascii_lowercase()));
         validate_authorization_code(&value).unwrap();
     }
 }
@@ -598,11 +594,9 @@ async fn production_ingress_supports_https_origin_through_a_remote_gateway() {
     let body = axum::body::to_bytes(clients.into_body(), 4096)
         .await
         .unwrap();
-    assert!(
-        std::str::from_utf8(&body)
-            .unwrap()
-            .contains("gateway-camera-client")
-    );
+    assert!(std::str::from_utf8(&body)
+        .unwrap()
+        .contains("gateway-camera-client"));
 
     let callback = app
         .clone()
@@ -1029,12 +1023,10 @@ async fn command_admission_preserves_stop_capacity_and_unknown_receipts() {
     };
     assert!(validate_command_result(&bad).is_err());
     // The obsolete result shape is rejected even with a current UUID.
-    assert!(
-        serde_json::from_value::<DeviceCommandResult>(
-            json!({"id":command,"status":"failed","error":"secret"})
-        )
-        .is_err()
-    );
+    assert!(serde_json::from_value::<DeviceCommandResult>(
+        json!({"id":command,"status":"failed","error":"secret"})
+    )
+    .is_err());
     pool.close().await;
 }
 
@@ -1544,20 +1536,18 @@ fn route_local_required_fields_cannot_be_omitted() {
     assert!(serde_json::from_value::<RecordingQuery>(json!({})).is_err());
     assert!(serde_json::from_value::<PlayRecordingQuery>(json!({})).is_err());
     assert!(server_log_range(None, None, None).is_err());
-    assert!(
-        serde_json::from_value::<MediaAuthRequest>(json!({
-            "user": "",
-            "password": "",
-            "token": "token",
-            "ip": "127.0.0.1",
-            "action": "read",
-            "path": "camera/main",
-            "protocol": "webrtc",
-            "id": Uuid::new_v4(),
-            "query": ""
-        }))
-        .is_err()
-    );
+    assert!(serde_json::from_value::<MediaAuthRequest>(json!({
+        "user": "",
+        "password": "",
+        "token": "token",
+        "ip": "127.0.0.1",
+        "action": "read",
+        "path": "camera/main",
+        "protocol": "webrtc",
+        "id": Uuid::new_v4(),
+        "query": ""
+    }))
+    .is_err());
 }
 
 #[test]
@@ -2045,12 +2035,10 @@ async fn established_event_stream_stops_after_session_logout_or_expiry() {
         }
         if ending != "logout_idle" {
             for _ in 0..if ending == "logout_lagged" { 512 } else { 1 } {
-                assert!(
-                    state
-                        .events
-                        .send(event("private-event-after-session-end"))
-                        .is_ok()
-                );
+                assert!(state
+                    .events
+                    .send(event("private-event-after-session-end"))
+                    .is_ok());
             }
         }
         let next = tokio::time::timeout(
