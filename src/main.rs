@@ -4,7 +4,7 @@ use std::path::PathBuf;
 #[derive(Parser)]
 #[command(name = "xcos", version, about = "Xcos camera monitoring control plane")]
 struct Cli {
-    #[arg(long, global = true, default_value = "/opt/isarmg/xcos")]
+    #[arg(long)]
     root: PathBuf,
 }
 

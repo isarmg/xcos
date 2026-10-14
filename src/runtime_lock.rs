@@ -1,4 +1,4 @@
-//! Product state ownership composed from the common instance/maintenance protocol.
+//! Product state ownership composed from the common running-instance lock.
 use anyhow::{ensure, Context};
 use std::os::unix::fs::MetadataExt;
 use std::{fs, path::PathBuf};
@@ -67,27 +67,13 @@ mod tests {
         let first = ApplicationLock::acquire(&url).unwrap();
         first.validate_open_database().unwrap();
         assert!(ApplicationLock::acquire(&url).is_err());
-        assert!(PrivateStateDirectory::open(root.path())
-            .unwrap()
-            .try_maintenance_lock()
-            .is_err());
-        PrivateStateDirectory::open(root.path())
-            .unwrap()
-            .try_shared_maintenance_lock()
-            .unwrap();
         assert!(!root.path().join("runtime").exists());
         assert!(!root.path().join("app.pid").exists());
         drop(first);
-        let maintenance = PrivateStateDirectory::open(root.path())
-            .unwrap()
-            .try_maintenance_lock()
-            .unwrap();
-        assert!(ApplicationLock::acquire(&url).is_err());
-        drop(maintenance);
         ApplicationLock::acquire(&url).unwrap();
     }
     #[test]
-    fn aliased_database_and_pending_maintenance_are_rejected() {
+    fn aliased_database_is_rejected() {
         let (root, database, url) = state();
         let alias = root.path().join("alias");
         fs::hard_link(&database, &alias).unwrap();
@@ -96,11 +82,5 @@ mod tests {
         let link = root.path().join("link.sqlite3");
         symlink(&database, &link).unwrap();
         assert!(ApplicationLock::acquire(&format!("sqlite://{}", link.display())).is_err());
-        fs::write(
-            root.path().join(xcss::state_file::MAINTENANCE_PENDING_FILE),
-            b"{}",
-        )
-        .unwrap();
-        assert!(ApplicationLock::acquire(&url).is_err());
     }
 }

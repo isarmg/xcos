@@ -8,7 +8,7 @@
 队列回归使用 `npm run test:unit --prefix web`，页面交互使用 `npm run test:browser --prefix web` 验证。
 
 ```text
-xcos 1.0.3
+xcos 1.0.0
 ├─ 构建
 │  ├─ Node 26.7.0 -> check:xcss -> TypeScript strict -> Vite 8
 │  ├─ Rust 1.99.0 -> x86_64-unknown-linux-gnu binary
@@ -142,10 +142,10 @@ Administrator Browser Session
 
 普通运行不扫描其他代路径、不解析非当前Schema/密文，也不通过fallback修补数据。实例和 runtime 锁核对物理身份，systemd 管理 companion，错误输入拒绝运行。
 
-## 9. Web 构建与 xcss 1.0.13 流程
+## 9. Web 构建与 xcss 1.0.0 流程
 
 ```text
-package.json + package-lock.json 精确锁定 xcss 1.0.13 和工具链
+package.json + package-lock.json 精确锁定 xcss 1.0.0 和工具链
   -> npm ci
   -> check:xcss
        ├─ 校验 Node/React/TypeScript/Vite 精确版本
@@ -171,8 +171,8 @@ npm run build
 
 `build` 已把 `check:xcss` 设为硬前置，因此不能通过直接执行 Vite 跳过共享边界。构建产物完全自包含；
 浏览器运行时不解析 npm 包，也不访问 npm registry、xcss 仓库或远程 CSS。
-构建期单个 @xcss/web 包候选固定xcss `v1.0.13`官方URL和真实归档的lockfile integrity；Rust revision 与 Web 归档固定正式发布输入，跨机器构建按锁文件验证。
-Rust crate 由版本 `=1.0.13` 和 revision `b9b5858088510d0bf6832044353c92d09ee123fe` 双重锁定。两者都不读取
+构建期单个 @xcss/web 包候选固定xcss `v1.0.0`官方URL和真实归档的lockfile integrity；Rust revision 与 Web 归档固定正式发布输入，跨机器构建按锁文件验证。
+Rust crate 由版本 `=1.0.0` 和 revision `b34b3861e15edd2b1348e7d03b9c9a93e97d6521` 双重锁定。两者都不读取
 共同父目录或 sibling checkout，也不提供旧来源 fallback。
 
 ## 10. xcss 共享层与产品层调用树
@@ -196,10 +196,10 @@ web/src/main.tsx
    └─ 纸张/墨色/警示色、布局、组件和响应式品牌样式
 
 Rust/Axum
-├─ xcss::contracts 1.0.13 -> Administrator 认证 DTO/路径和跨语言合同
-├─ xcss::error 1.0.13 -> 严格 ErrorEnvelope/ErrorCode
-├─ xcss::schema_identity 1.0.13 -> metadata DDL/列、指纹 framing 与 exact identity
-├─ xcss::server_target 1.0.13 -> 编译期 x86_64-unknown-linux-gnu 门禁
+├─ xcss::contracts 1.0.0 -> Administrator 认证 DTO/路径和跨语言合同
+├─ xcss::error 1.0.0 -> 严格 ErrorEnvelope/ErrorCode
+├─ xcss::schema_identity 1.0.0 -> metadata DDL/列、指纹 framing 与 exact identity
+├─ xcss::server_target 1.0.0 -> 编译期 x86_64-unknown-linux-gnu 门禁
 └─ Xcos 产品代码 -> 私有 SQLite generation、Schema DDL、Cookie、Session、媒体、审计与运维
 ```
 

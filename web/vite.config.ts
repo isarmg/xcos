@@ -1,9 +1,9 @@
-import { xcssFontLicenses } from "./font-licenses.mjs";
+import { xcssFontLicenses, xssiRuntimeInventory } from "./font-licenses.mjs";
 import { createXcssReactViteConfig } from "@xcss/web/web-toolchain/vite";
 import { mergeConfig } from "vite";
 
-export default mergeConfig(createXcssReactViteConfig(), {
-  plugins: [xcssFontLicenses()],
+export default async () => mergeConfig(createXcssReactViteConfig(), {
+  plugins: [xcssFontLicenses(), ...await xssiRuntimeInventory()],
   server: {
     port: 5173,
     proxy: {

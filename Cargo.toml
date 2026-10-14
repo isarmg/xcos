@@ -1,13 +1,14 @@
 [package]
 name = "xcos"
-version = "1.0.4"
+version = "1.0.0"
 edition = "2021"
 rust-version = "1.99"
 description = "Maintainable Rust control plane for browser-based camera monitoring"
 build = "build.rs"
 
 [dependencies]
-xcss = { git = "https://github.com/isarmg/xcss.git", rev = "b9b5858088510d0bf6832044353c92d09ee123fe", version = "=1.0.13", features = ["tracing"] }
+schemars = "=1.2.3"
+xcss = { git = "https://github.com/isarmg/xcss.git", rev = "b34b3861e15edd2b1348e7d03b9c9a93e97d6521", version = "=1.0.0", features = ["tracing"] }
 anyhow = "1"
 async-trait = "0.1"
 async-stream = "0.3"
@@ -40,9 +41,12 @@ uuid = { version = "1", features = ["v4", "serde"] }
 tower = { version = "0.5", features = ["util"] }
 
 [build-dependencies]
+base64 = "0.23.1"
+schemars = "=1.2.3"
+serde = { version = "1", features = ["derive"] }
 sha2 = "0.11"
 serde_json = "1"
-xcss = { git = "https://github.com/isarmg/xcss.git", rev = "b9b5858088510d0bf6832044353c92d09ee123fe", version = "=1.0.13" }
+xcss = { git = "https://github.com/isarmg/xcss.git", rev = "b34b3861e15edd2b1348e7d03b9c9a93e97d6521", version = "=1.0.0" }
 
 [lints.rust]
 unsafe_code = "forbid"

@@ -1,0 +1,26 @@
+[
+  {
+    "name": "invalid-certificate",
+    "input": {
+      "certificate_pem": "not a PEM certificate",
+      "key_pem": "not a PEM private key"
+    },
+    "valid": false
+  },
+  {
+    "name": "missing-certificate",
+    "input": {
+      "certificate_pem": "",
+      "key_pem": "not a PEM private key"
+    },
+    "valid": false
+  },
+  {
+    "name": "missing-key",
+    "input": {
+      "certificate_pem": "not a PEM certificate",
+      "key_pem": ""
+    },
+    "valid": false
+  }
+]

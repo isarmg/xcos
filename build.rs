@@ -1,3 +1,14 @@
+#[path = "src/config_definition.rs"]
+#[allow(dead_code)] // Runtime-only fields are intentionally absent from exported configuration.
+mod config_definition;
+#[path = "src/installation_definition.rs"]
+mod installation_definition;
+#[path = "src/persistent_crypto_definition.rs"]
+mod persistent_crypto_definition;
+#[path = "src/schema_definition.rs"]
+mod schema_definition;
+#[path = "src/secrets_definition.rs"]
+mod secrets_definition;
 use std::{collections::BTreeSet, env, fs, path::PathBuf};
 
 const XCSS_SOURCE: &str = "git+https://github.com/isarmg/xcss.git?rev=";
@@ -37,6 +48,26 @@ fn main() {
     println!("cargo:rerun-if-env-changed=XSSI_BUILD_METADATA_DIR");
     println!("cargo:rerun-if-env-changed=XCSS_WEB_DIST");
     println!("cargo:rerun-if-env-changed=XCOS_SOURCE_REVISION");
+    println!("cargo:rerun-if-changed=src/schema_definition.rs");
+    let schema = [
+        xcss::schema_identity::PRODUCT_METADATA_DDL,
+        xcss::platform_db::PLATFORM_METADATA_DDL,
+        xcss::admin_sqlite::ADMIN_PERSISTENT_DDL,
+        xcss::operations::PLATFORM_OPERATIONS_DDL,
+        include_str!("schema/product.sql"),
+    ]
+    .into_iter()
+    .map(|definition| format!("{};\n", definition.trim().trim_end_matches(';')))
+    .collect::<String>();
+    let schema_hash =
+        xcss::sqlite::fingerprint_trusted_ddl(&[&schema]).expect("current schema fingerprint");
+    fs::write(
+        PathBuf::from(env::var_os("OUT_DIR").unwrap()).join("current-schema.sql"),
+        schema,
+    )
+    .unwrap();
+    println!("cargo:rustc-env=XCOS_CURRENT_SCHEMA_SHA256={schema_hash}");
+    println!("cargo:rerun-if-changed=schema/product.sql");
 
     let target = env::var("TARGET").expect("Cargo must provide TARGET");
     assert_eq!(
@@ -95,22 +126,22 @@ fn emit_offline_metadata() {
     );
     let revision = std::env::var("XCOS_SOURCE_REVISION")
         .expect("release metadata requires a source-bound build");
-    let hash = "4d20083821ff39d78792d0795b26206e851c2e6d0523109ee49cfc06666a1d4a";
-    let schema = xcss::contracts::SchemaIdentity::new("xcos", "xcos-db-v2", 2, hash)
-        .expect("schema identity");
+    let ddl = fs::read_to_string(
+        PathBuf::from(env::var_os("OUT_DIR").unwrap()).join("current-schema.sql"),
+    )
+    .unwrap();
+    let hash = xcss::sqlite::fingerprint_trusted_ddl(&[&ddl]).unwrap();
+    let schema = schema_definition::identity(&hash).expect("schema identity");
     let contract = StateContract {
         contract_version: xcss::contracts::STATE_CONTRACT_VERSION,
         application: "xcos".into(),
         application_version: std::env::var("CARGO_PKG_VERSION").unwrap(),
         source_revision: revision.clone(),
         schema: Some(StateSchemaIdentity {
-            revision: 2,
-            sha256: hash.into(),
+            revision: schema.schema_revision,
+            sha256: hash.clone(),
         }),
-        maintenance_locks: vec![
-            ".state-instance.lock".into(),
-            ".state-maintenance.lock".into(),
-        ],
+        maintenance_locks: vec![".state-instance.lock".into()],
         resources: vec![
             StateResource {
                 name: "state".into(),
@@ -159,6 +190,7 @@ fn emit_offline_metadata() {
         state_contract_sha256: digest,
     };
     identity.validate().expect("release identity");
+    installation_definition::emit(&destination, &identity, &schema, &ddl);
     std::fs::write(
         destination.join("xcos-identity.json"),
         serde_json::to_vec(&identity).unwrap(),

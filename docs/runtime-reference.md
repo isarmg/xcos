@@ -39,8 +39,8 @@ Web 显示“观测已过期”或“尚无有效观测”，详情同时显示�
 上报的设备状态。已停用设备保持“已停用”。浏览器快照也在服务端给出的有效期结束后失效；即使没有新响应，
 旧在线徽标也不会一直保留。`/v3/info` 成功只说明 MediaMTX 信息接口可用，不能证明路径清单或摄像机在线。
 
-当前数据库格式为 `xcos-db-v2`、Schema revision `2`，浏览器契约为 `xcos-wire-v2`；Client 设备协议和媒体 JWT
-未变化。运行前校验当前结构，失败时保留原数据库。全新部署由 xssi 的签名辅助程序创建当前状态。
+当前数据库格式为 `xcos-db-v1`、Schema revision `1`，浏览器契约为 `xcos-wire-v1`；Client 设备协议和媒体 JWT
+未变化。运行前校验当前结构，失败时保留原数据库。全新部署由 xssi 的独立辅助程序创建当前状态。
 
 ## 4. 当前数据库与凭据合同
 
@@ -48,8 +48,8 @@ Web 显示“观测已过期”或“尚无有效观测”，详情同时显示�
 
 ```text
 application=xcos
-application_version=xcos-db-v2
-schema_revision=2
+application_version=xcos-db-v1
+schema_revision=1
 schema_sha256=4d20083821ff39d78792d0795b26206e851c2e6d0523109ee49cfc06666a1d4a
 ```
 

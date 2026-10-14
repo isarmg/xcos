@@ -194,6 +194,7 @@ fn parse_contract(path: &Path) -> anyhow::Result<ParsedContract> {
 
 /// Render only deployment-owned callback/storage values. TLS and ICE settings
 /// remain in the reviewed template and the companion's own environment.
+#[cfg(test)]
 pub(crate) fn render_media_config(
     path: &Path,
     recordings: &Path,
@@ -250,9 +251,15 @@ fn verify_media_config_content(
     for (key, expected) in [
         ("authMethod", "http"),
         ("authHTTPAddress", auth_address.as_str()),
-        ("apiAddress", "127.0.0.1:9997"),
-        ("playbackAddress", "127.0.0.1:9996"),
+        ("apiAddress", crate::config_definition::MEDIA_API_ADDRESS),
+        (
+            "playbackAddress",
+            crate::config_definition::MEDIA_PLAYBACK_ADDRESS,
+        ),
         ("recordFormat", "fmp4"),
+        ("rtmp", "no"),
+        ("srt", "no"),
+        ("moq", "no"),
     ] {
         let values = config_values(content, key);
         ensure!(

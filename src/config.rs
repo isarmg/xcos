@@ -1,12 +1,9 @@
 use base64::{engine::general_purpose::STANDARD, Engine as _};
-use serde::{Deserialize, Serialize};
 use std::{
     net::SocketAddr,
     path::{Path, PathBuf},
     time::Duration,
 };
-
-const DEFAULT_BIND_ADDR: &str = "127.0.0.1:18106";
 
 #[derive(Clone)]
 pub struct Config {
@@ -30,57 +27,10 @@ pub struct Config {
 }
 
 /// The current JSON contract. Secrets never appear in a diagnostic report.
-#[derive(Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Settings {
-    #[serde(skip)]
-    pub root: PathBuf,
-    pub recordings_directory: Option<PathBuf>,
-    pub mediamtx_config: Option<PathBuf>,
-    pub mediamtx_contract: Option<PathBuf>,
-    pub mediamtx_binary: Option<PathBuf>,
-    pub bind: SocketAddr,
-    pub media_callback_bind: SocketAddr,
-    pub data_dir: Option<PathBuf>,
-    pub development: bool,
-    pub log_level: String,
-    pub media_token_ttl_secs: u64,
-    pub mediamtx_api_url: String,
-    pub mediamtx_playback_url: String,
-    pub public_webrtc_base_url: String,
-    pub public_hls_base_url: String,
-    pub public_rtsp_publish_base_url: String,
-    pub status_interval_secs: u64,
-    pub reconcile_interval_secs: u64,
-    pub request_timeout_secs: u64,
-    pub static_dir: Option<PathBuf>,
-}
-impl Default for Settings {
-    fn default() -> Self {
-        Self {
-            root: "/opt/isarmg/xcos".into(),
-            recordings_directory: None,
-            mediamtx_config: Some("/opt/isarmg/xcos/config/mediamtx.yml".into()),
-            mediamtx_contract: Some("/opt/isarmg/xcos/share/mediamtx.lock".into()),
-            mediamtx_binary: Some("/opt/isarmg/xcos/bin/mediamtx".into()),
-            bind: DEFAULT_BIND_ADDR.parse().expect("default address"),
-            media_callback_bind: "127.0.0.1:18107".parse().expect("callback address"),
-            data_dir: Some("/opt/isarmg/xcos/state".into()),
-            development: false,
-            log_level: "info".into(),
-            media_token_ttl_secs: 120,
-            mediamtx_api_url: "http://127.0.0.1:9997".into(),
-            mediamtx_playback_url: "http://127.0.0.1:9996".into(),
-            public_webrtc_base_url: "/media-webrtc".into(),
-            public_hls_base_url: "/media-hls".into(),
-            public_rtsp_publish_base_url: "rtsp://127.0.0.1:8554".into(),
-            status_interval_secs: 10,
-            reconcile_interval_secs: 60,
-            request_timeout_secs: 20,
-            static_dir: None,
-        }
-    }
-}
+pub use crate::config_definition::Settings;
+#[cfg(test)]
+use crate::config_definition::DEFAULT_BIND_ADDR;
+
 pub fn load_at_root(root: &Path, file: &Path) -> anyhow::Result<xcss::config::Loaded<Settings>> {
     validate_root(root)?;
     use xcss::config::{EnvMapping, EnvValueKind};
@@ -136,16 +86,6 @@ pub fn load_at_root(root: &Path, file: &Path) -> anyhow::Result<xcss::config::Lo
             kind: EnvValueKind::UnsignedInteger,
         },
         EnvMapping {
-            variable: "XCOS_MEDIAMTX_API_URL",
-            path: "/mediamtx_api_url",
-            kind: EnvValueKind::String,
-        },
-        EnvMapping {
-            variable: "XCOS_MEDIAMTX_PLAYBACK_URL",
-            path: "/mediamtx_playback_url",
-            kind: EnvValueKind::String,
-        },
-        EnvMapping {
             variable: "XCOS_PUBLIC_WEBRTC_BASE_URL",
             path: "/public_webrtc_base_url",
             kind: EnvValueKind::String,
@@ -195,7 +135,10 @@ pub fn load_at_root(root: &Path, file: &Path) -> anyhow::Result<xcss::config::Lo
         !invalid_unicode,
         "mapped environment settings must be valid Unicode"
     );
-    let bytes = xcss::config::read_private_file(file)?;
+    let bytes = xcss::config::read_managed_file(
+        file,
+        cfg!(debug_assertions) && env!("XCOS_SOURCE_REVISION") == "unbound",
+    )?;
     let defaults = Settings {
         root: root.to_path_buf(),
         data_dir: Some(root.join("state")),
@@ -236,129 +179,29 @@ fn validate_intrinsic(
     value: &Settings,
     source: xcss::config::ConfigSource,
 ) -> Result<(), xcss::config::ConfigError> {
-    let invalid =
-        |path| xcss::config::ConfigError::new(xcss::config::Reason::InvalidValue, path, source);
-    for (field, path) in [
-        ("/data_dir", &value.data_dir),
-        ("/static_dir", &value.static_dir),
-        ("/recordings_directory", &value.recordings_directory),
-        ("/mediamtx_config", &value.mediamtx_config),
-        ("/mediamtx_contract", &value.mediamtx_contract),
-        ("/mediamtx_binary", &value.mediamtx_binary),
-    ] {
-        if path.as_ref().is_some_and(|path| {
-            !path.is_absolute()
-                || path.components().any(|c| {
-                    matches!(
-                        c,
-                        std::path::Component::ParentDir | std::path::Component::CurDir
-                    )
-                })
-        }) {
-            return Err(invalid(field));
-        }
-    }
-    if value.root.is_absolute() {
-        let data = value
-            .data_dir
-            .as_deref()
-            .ok_or_else(|| invalid("/data_dir"))?;
-        let recordings = value
-            .recordings_directory
-            .clone()
-            .unwrap_or_else(|| data.join("recordings"));
-        for (field, selected) in [
-            ("/data_dir", data),
-            ("/recordings_directory", recordings.as_path()),
-        ] {
-            for name in [
-                "bin",
-                "libexec",
-                "share",
-                "config",
-                "logs",
-                "run",
-                "maintenance",
-            ] {
-                let protected = value.root.join(name);
-                if selected.starts_with(&protected) || protected.starts_with(selected) {
-                    return Err(invalid(field));
-                }
-            }
-        }
-    }
-    if value.development && !value.bind.ip().is_loopback() {
-        return Err(invalid("/bind"));
-    }
-    if !value.media_callback_bind.ip().is_loopback() || value.media_callback_bind.port() == 0 {
-        return Err(invalid("/media_callback_bind"));
-    }
-    if value.bind.port() == value.media_callback_bind.port()
-        && (value.bind.ip() == value.media_callback_bind.ip() || value.bind.ip().is_unspecified())
-    {
-        return Err(invalid("/media_callback_bind"));
-    }
-    if !matches!(
-        value.log_level.as_str(),
-        "error" | "warn" | "info" | "debug" | "trace" | "off"
-    ) {
-        return Err(invalid("/log_level"));
-    }
-    for (field, number, min, max) in [
-        ("/media_token_ttl_secs", value.media_token_ttl_secs, 30, 300),
-        ("/status_interval_secs", value.status_interval_secs, 1, 3600),
-        (
-            "/reconcile_interval_secs",
-            value.reconcile_interval_secs,
-            1,
-            3600,
+    xcss::configuration_contract::validate_rules(
+        &crate::config_definition::current_rules(
+            false,
+            !cfg!(debug_assertions) || env!("XCOS_SOURCE_REVISION") != "unbound",
         ),
-        ("/request_timeout_secs", value.request_timeout_secs, 1, 300),
-    ] {
-        if !(min..=max).contains(&number) {
-            return Err(invalid(field));
-        }
-    }
-    for (field, text) in [
-        ("/mediamtx_api_url", &value.mediamtx_api_url),
-        ("/mediamtx_playback_url", &value.mediamtx_playback_url),
-    ] {
-        let url = url::Url::parse(text).map_err(|_| invalid(field))?;
-        if url.scheme() != "http"
-            || !url.username().is_empty()
-            || url.password().is_some()
-            || url.query().is_some()
-            || url.fragment().is_some()
-            || !url.host_str().is_some_and(|host| {
-                host == "localhost"
-                    || host
-                        .parse::<std::net::IpAddr>()
-                        .is_ok_and(|ip| ip.is_loopback())
-            })
-        {
-            return Err(invalid(field));
-        }
-    }
-    // Origin reachability and required secrets are checked on final effective
-    // settings; syntax and secret/interval bounds are checked in every layer.
-    if validate_public_rtsp_base(&value.public_rtsp_publish_base_url, true).is_err() {
-        return Err(invalid("/public_rtsp_publish_base_url"));
-    }
-    Ok(())
+        &serde_json::to_value(value).map_err(|_| {
+            xcss::config::ConfigError::new(xcss::config::Reason::TypeMismatch, "", source)
+        })?,
+        &value.root,
+        source,
+    )
 }
 
 impl Settings {
     pub fn companion_paths(&self) -> anyhow::Result<(PathBuf, PathBuf, PathBuf)> {
-        for (selected, expected) in [
-            (&self.mediamtx_config, self.root.join("config/mediamtx.yml")),
-            (
-                &self.mediamtx_contract,
-                self.root.join("share/mediamtx.lock"),
-            ),
-            (&self.mediamtx_binary, self.root.join("bin/mediamtx")),
-        ] {
+        let value = serde_json::to_value(self)?;
+        for (pointer, relative) in crate::config_definition::fixed_companion_paths() {
+            let selected = value
+                .pointer(pointer)
+                .and_then(serde_json::Value::as_str)
+                .ok_or_else(|| anyhow::anyhow!("MediaMTX file path is required"))?;
             anyhow::ensure!(
-                selected.as_ref() == Some(&expected),
+                Path::new(selected) == self.root.join(relative),
                 "MediaMTX files must use the fixed ROOT layout"
             );
         }
@@ -387,8 +230,15 @@ impl Settings {
         validate_development_bind(self.bind, self.development).map_err(anyhow::Error::msg)?;
         self.data_directory()?;
         self.companion_paths()?;
-        validate_public_rtsp_base(&self.public_rtsp_publish_base_url, self.development)
-            .map_err(anyhow::Error::msg)?;
+        xcss::configuration_contract::validate_rules(
+            &crate::config_definition::current_rules(
+                true,
+                !cfg!(debug_assertions) || env!("XCOS_SOURCE_REVISION") != "unbound",
+            ),
+            &serde_json::to_value(self)?,
+            &self.root,
+            xcss::config::ConfigSource::File,
+        )?;
         if self.static_dir.is_some()
             && (!self.development
                 || !cfg!(debug_assertions)
@@ -439,15 +289,11 @@ impl Settings {
             credentials_key,
             development_mode,
             media_token_ttl: bounded(self.media_token_ttl_secs, 30, 300)?,
-            mediamtx_api_url: trim_slash(self.mediamtx_api_url.clone()),
-            mediamtx_playback_url: trim_slash(self.mediamtx_playback_url.clone()),
+            mediamtx_api_url: crate::config_definition::MEDIA_API_ORIGIN.into(),
+            mediamtx_playback_url: crate::config_definition::MEDIA_PLAYBACK_ORIGIN.into(),
             public_webrtc_base_url: trim_slash(self.public_webrtc_base_url.clone()),
             public_hls_base_url: trim_slash(self.public_hls_base_url.clone()),
-            public_rtsp_publish_base_url: validate_public_rtsp_base(
-                &self.public_rtsp_publish_base_url,
-                development_mode,
-            )
-            .map_err(anyhow::Error::msg)?,
+            public_rtsp_publish_base_url: trim_slash(self.public_rtsp_publish_base_url.clone()),
             status_interval: bounded(self.status_interval_secs, 1, 3600)?,
             reconcile_interval: bounded(self.reconcile_interval_secs, 1, 3600)?,
             request_timeout: bounded(self.request_timeout_secs, 1, 300)?,
@@ -456,39 +302,17 @@ impl Settings {
     }
 }
 
+#[cfg(test)]
 fn validate_public_rtsp_base(value: &str, development_mode: bool) -> Result<String, String> {
-    let value = trim_slash(value.to_owned());
-    let parsed = url::Url::parse(&value)
-        .map_err(|_| "XCOS_PUBLIC_RTSP_PUBLISH_BASE_URL must be a valid RTSP URL".to_owned())?;
-    if !matches!(parsed.scheme(), "rtsp" | "rtsps")
-        || parsed.host_str().is_none()
-        || !parsed.username().is_empty()
-        || parsed.password().is_some()
-        || !matches!(parsed.path(), "" | "/")
-        || parsed.query().is_some()
-        || parsed.fragment().is_some()
-    {
-        return Err(
-            "XCOS_PUBLIC_RTSP_PUBLISH_BASE_URL must be an rtsp(s) origin without query or fragment"
-                .to_owned(),
-        );
-    }
-    let local_only = parsed.host_str().is_none_or(|host| {
-        host.eq_ignore_ascii_case("localhost")
-            || host
-                .parse::<std::net::IpAddr>()
-                .is_ok_and(|address| address.is_loopback() || address.is_unspecified())
-    });
-    if !development_mode && local_only {
-        return Err(
-            "XCOS_PUBLIC_RTSP_PUBLISH_BASE_URL must be reachable by paired clients in production"
-                .to_owned(),
-        );
-    }
-    if !development_mode && parsed.scheme() != "rtsps" {
-        return Err("XCOS_PUBLIC_RTSP_PUBLISH_BASE_URL must use rtsps in production".to_owned());
-    }
-    Ok(value)
+    let settings = Settings {
+        public_rtsp_publish_base_url: value.into(),
+        development: development_mode,
+        ..Settings::default()
+    };
+    settings
+        .validate_configuration()
+        .map_err(|error| error.to_string())?;
+    Ok(trim_slash(value.to_owned()))
 }
 
 #[cfg(test)]
@@ -521,28 +345,25 @@ fn trim_slash(mut value: String) -> String {
     value
 }
 
-/// Private instance state. Never accepted from deployment configuration.
-#[derive(Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct InstanceSecrets {
-    format: u32,
-    jwt_secret: String,
-    credentials_key: String,
-}
+use crate::secrets_definition::{InstanceSecrets, FORMAT as SECRET_FORMAT, KEY_BYTES};
 impl InstanceSecrets {
+    #[cfg(test)]
     pub fn generate() -> anyhow::Result<Self> {
         Ok(Self {
-            format: 1,
+            format: SECRET_FORMAT,
             jwt_secret: STANDARD.encode(xcss::server_secrets::generate_key()?),
             credentials_key: STANDARD.encode(xcss::server_secrets::generate_key()?),
         })
     }
     fn decode(&self) -> anyhow::Result<(Vec<u8>, [u8; 32])> {
-        anyhow::ensure!(self.format == 1, "unsupported secrets format");
+        anyhow::ensure!(self.format == SECRET_FORMAT, "unsupported secrets format");
         let jwt_secret = STANDARD
             .decode(&self.jwt_secret)
             .map_err(|_| anyhow::anyhow!("invalid instance JWT key"))?;
-        anyhow::ensure!(jwt_secret.len() == 32, "invalid instance JWT key length");
+        anyhow::ensure!(
+            jwt_secret.len() == KEY_BYTES,
+            "invalid instance JWT key length"
+        );
         let credentials_key: [u8; 32] = STANDARD
             .decode(&self.credentials_key)
             .map_err(|_| anyhow::anyhow!("invalid instance credential key"))?
@@ -607,7 +428,11 @@ mod tests {
                 Some(&serde_json::to_vec(&settings).unwrap()),
                 &[],
                 &[],
-                validate_intrinsic,
+                |value, source| {
+                    let mut bound = value.clone();
+                    bound.root = settings.root.clone();
+                    validate_intrinsic(&bound, source)
+                },
             )
             .unwrap();
             loaded.value.root = settings.root.clone();

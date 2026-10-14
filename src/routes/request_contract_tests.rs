@@ -529,11 +529,14 @@ async fn production_ingress_supports_https_origin_through_a_remote_gateway() {
     config.development_mode = false;
     config.public_rtsp_publish_base_url = "rtsps://xcos.example.org:8322".into();
     state.administrator_origin = xcss::admin_auth::AdministratorOriginMode::ProductionHttps;
-    state
-        .administrator
-        .bootstrap_administrator("admin", "ordinary-gateway-test-password", 1)
-        .await
-        .unwrap();
+    crate::test_support::seed_administrator(
+        &state.administrator,
+        "admin",
+        "ordinary-gateway-test-password",
+        1,
+    )
+    .await
+    .unwrap();
     let (media_token, _) = issue_media_token(
         "administrator",
         client_id,

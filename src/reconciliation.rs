@@ -1348,10 +1348,14 @@ mod tests {
         let administrator = xcss::admin_core::AdministratorService::new(
             xcss::admin_sqlite::SqliteAdministratorStore::new(pool.clone()),
         );
-        assert!(administrator
-            .bootstrap_administrator("lease-admin", "lease-admin-password", now_micros as u64)
-            .await
-            .unwrap());
+        assert!(crate::test_support::seed_administrator(
+            &administrator,
+            "lease-admin",
+            "lease-admin-password",
+            now_micros as u64
+        )
+        .await
+        .unwrap());
         let user = administrator
             .store()
             .administrator_by_username("lease-admin")

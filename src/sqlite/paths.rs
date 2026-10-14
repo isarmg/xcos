@@ -2,7 +2,7 @@ use anyhow::{ensure, Context};
 #[cfg(unix)]
 use std::os::unix::fs::MetadataExt;
 use std::{
-    fs::{self, File},
+    fs,
     path::{Component, Path, PathBuf},
 };
 
@@ -74,6 +74,7 @@ pub(super) fn require_real_parent(path: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
+#[cfg(test)]
 pub(super) fn sqlite_generation_paths(path: &Path) -> [PathBuf; 4] {
     [
         path.to_path_buf(),
@@ -83,14 +84,16 @@ pub(super) fn sqlite_generation_paths(path: &Path) -> [PathBuf; 4] {
     ]
 }
 
+#[cfg(test)]
 pub(super) fn sqlite_sidecar(path: &Path, suffix: &str) -> PathBuf {
     let mut value = path.as_os_str().to_os_string();
     value.push(suffix);
     PathBuf::from(value)
 }
 
+#[cfg(test)]
 pub(super) fn sync_parent(path: &Path) -> anyhow::Result<()> {
     #[cfg(unix)]
-    File::open(path.parent().unwrap_or_else(|| Path::new(".")))?.sync_all()?;
+    std::fs::File::open(path.parent().unwrap_or_else(|| Path::new(".")))?.sync_all()?;
     Ok(())
 }

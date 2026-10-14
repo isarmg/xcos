@@ -5,13 +5,16 @@ use std::sync::Arc;
 use xcss::secret::{SecretBytes, SecretKey};
 use xcss::secret_envelope::EnvelopeDomain;
 
-pub(crate) const CREDENTIAL_ENVELOPE_REVISION: u32 = 1;
-const MAX_AUTHORIZATION_ENVELOPE_BYTES: usize = 1024;
+use crate::persistent_crypto_definition::{
+    AUTHORIZATION_CODE_BYTES, AUTHORIZATION_DOMAIN, AUTHORIZATION_REVISION,
+    MAX_AUTHORIZATION_ENVELOPE_BYTES,
+};
+pub(crate) const CREDENTIAL_ENVELOPE_REVISION: u32 = AUTHORIZATION_REVISION as u32;
 
 struct ClientAuthorizationEnvelope;
 
 impl EnvelopeDomain for ClientAuthorizationEnvelope {
-    const DOMAIN: &'static [u8] = b"xcos/client-authorization";
+    const DOMAIN: &'static [u8] = AUTHORIZATION_DOMAIN.as_bytes();
     const REVISION: u16 = CREDENTIAL_ENVELOPE_REVISION as u16;
 }
 
@@ -63,7 +66,7 @@ fn authorization_binding(client_id: &str) -> Vec<u8> {
 }
 
 pub(crate) fn is_current_authorization_code(value: &str) -> bool {
-    value.len() == 36
+    value.len() == AUTHORIZATION_CODE_BYTES
         && value
             .bytes()
             .all(|byte| byte.is_ascii_digit() || byte.is_ascii_lowercase())
@@ -91,7 +94,7 @@ mod tests {
 
     #[test]
     fn credential_identity_and_schema_are_a_single_current_contract() {
-        let schema = include_str!("../schema/generated/current_schema.sql");
+        let schema = crate::sqlite::CURRENT_SCHEMA;
         assert!(schema.contains("authorization_code_enc BLOB"));
         let camera_table = schema
             .split_once("CREATE TABLE cameras (")

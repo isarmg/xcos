@@ -48,6 +48,10 @@ jobs:
             verify-manifest --product-root "$GITHUB_WORKSPACE"
       - name: Install pinned Rust
         run: rustup toolchain install 1.99.0 --profile minimal
+      - name: Install locked inventory tools
+        run: |
+          cargo install cargo-audit --version 0.22.2 --locked
+          cargo install cargo-cyclonedx --version 0.5.9 --locked
       - name: Install pinned Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
@@ -55,23 +59,10 @@ jobs:
           check-latest: false
       - name: Install locked Web dependencies
         run: npm ci --prefix web
-      - name: Build and verify the signed Server archive
+      - name: Build and verify the Server archive and SHA-256 inventory
         shell: bash
-        env:
-          PACKAGE_SIGNING_KEY: ${{ secrets.XSSI_PACKAGE_SIGNING_KEY }}
-          XSSI_REPOSITORY_TOKEN: ${{ secrets.XSSI_REPOSITORY_TOKEN }}
         run: |
           set -euo pipefail
-          export XSSI_SIGNING_KEY="$RUNNER_TEMP/package-signing.pem"
-          umask 077
-          python3 - <<'PYKEY'
-          import os,pathlib
-          key=os.environ.pop("PACKAGE_SIGNING_KEY")
-          if not key: raise SystemExit("XSSI_PACKAGE_SIGNING_KEY is required")
-          pathlib.Path(os.environ["XSSI_SIGNING_KEY"]).write_text(key)
-          PYKEY
-          unset PACKAGE_SIGNING_KEY
-          trap 'rm -f -- "$XSSI_SIGNING_KEY"' EXIT
           mkdir -p "$RUNNER_TEMP/release-output"
           bash scripts/package-release.sh --output-dir "$RUNNER_TEMP/release-output"
       - name: Retain verified release inputs for automatic publication

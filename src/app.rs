@@ -23,10 +23,7 @@ pub struct AppState {
     pub scope: xcss::server_runtime::WorkScope,
 }
 
-pub(crate) async fn serve(
-    config: Config,
-    log_layer: &xcss::log::XcssStructuredLayer,
-) -> anyhow::Result<()> {
+pub(crate) async fn serve(config: Config) -> anyhow::Result<()> {
     let config = Arc::new(config);
     let web_directory = config
         .static_dir
@@ -117,7 +114,7 @@ pub(crate) async fn serve(
 
         let logs = state.config.root.join("logs");
         xcss::fs_safety::PrivateDirectory::open_existing(&logs)?;
-        log_layer.set_rotating_file(xcss::log::RotatingLogFile::open(
+        xcss::log::install_rotating_file(xcss::log::RotatingLogFile::open(
             logs,
             "server",
             xcss::log::LogRetention::default(),

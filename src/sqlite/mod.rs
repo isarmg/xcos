@@ -1,38 +1,33 @@
-use anyhow::Context;
 use xcss::schema_identity::SchemaIdentity;
 
 mod connection;
-mod initialization;
 mod lease;
 mod paths;
 
 pub(crate) use connection::{
-    bounded_columns, current_validation_snapshot, history_connection, history_error, open_pool,
+    bounded_columns, current_validation_snapshot, history_connection, history_error,
     open_runtime_pool,
 };
 #[cfg(test)]
 pub(crate) use connection::{
-    initialize_current_database, initialize_test_pool, validate_current_database,
+    initialize_current_database, initialize_test_pool, open_pool, validate_current_database,
 };
-pub(crate) use initialization::initialize_with_administrator;
 pub(crate) use lease::{
     validate_global_lease_schema_sql, validate_global_lease_values, GlobalLeaseState,
 };
 pub(crate) use paths::database_path;
 
-const APPLICATION: &str = "xcos";
-pub const CURRENT_SCHEMA_REVISION: i64 = 2;
-pub const CURRENT_SCHEMA_SHA256: &str =
-    "4d20083821ff39d78792d0795b26206e851c2e6d0523109ee49cfc06666a1d4a";
-const CURRENT_SCHEMA: &str = include_str!("../../schema/generated/current_schema.sql");
+#[cfg(test)]
+const APPLICATION: &str = crate::schema_definition::APPLICATION;
+#[cfg(test)]
+pub const CURRENT_SCHEMA_REVISION: i64 = crate::schema_definition::SCHEMA_REVISION;
+pub const CURRENT_SCHEMA_SHA256: &str = env!("XCOS_CURRENT_SCHEMA_SHA256");
+#[cfg(test)]
+pub(crate) const CURRENT_SCHEMA: &str =
+    include_str!(concat!(env!("OUT_DIR"), "/current-schema.sql"));
 
 pub(crate) fn current_schema_identity() -> anyhow::Result<SchemaIdentity> {
-    Ok(SchemaIdentity::new(
-        APPLICATION,
-        "xcos-db-v2",
-        u64::try_from(CURRENT_SCHEMA_REVISION).context("current schema revision is negative")?,
-        CURRENT_SCHEMA_SHA256,
-    )?)
+    crate::schema_definition::identity(CURRENT_SCHEMA_SHA256).map_err(Into::into)
 }
 
 #[cfg(test)]

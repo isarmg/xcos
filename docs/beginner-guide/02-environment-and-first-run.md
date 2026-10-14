@@ -26,7 +26,7 @@ cargo +1.99.0 check --locked --all-targets
 ```bash
 read -rs -p 'Local administrator password: ' LOCAL_ADMIN_PASSWORD
 printf '\n'
-printf '%s\n' "$LOCAL_ADMIN_PASSWORD" | /absolute/signed-package/libexec/setup --product xcos --root /absolute/development-root initialize --username admin
+printf '%s\n' "$LOCAL_ADMIN_PASSWORD" | /absolute/verified-package/libexec/setup --product xcos --root /absolute/development-root initialize --username admin
 unset LOCAL_ADMIN_PASSWORD
 target/x86_64-unknown-linux-gnu/debug/xcos --root /absolute/development-root
 ```

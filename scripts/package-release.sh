@@ -6,16 +6,14 @@ product="xcos"
 required_cargo_cyclonedx_version="0.5.9"
 required_cargo_audit_version="0.22.2"
 output=""
-signing_key="${XSSI_SIGNING_KEY:-}"
 while (($#)); do
   case "$1" in
     --output-dir) output="${2:?missing output directory}"; shift 2 ;;
-    --signing-key) signing_key="${2:?missing signing key}"; shift 2 ;;
     /*) [[ -z "$output" ]] || { echo 'Duplicate output directory' >&2; exit 2; }; output="$1"; shift ;;
-    *) echo 'Usage: package-release.sh --output-dir ABSOLUTE --signing-key PEM' >&2; exit 2 ;;
+    *) echo 'Usage: package-release.sh --output-dir ABSOLUTE' >&2; exit 2 ;;
   esac
 done
-[[ "$output" = /* && -d "$output" && -n "$signing_key" ]] || { echo 'Existing absolute output directory and signing key are required.' >&2; exit 2; }
+[[ "$output" = /* && -d "$output" ]] || { echo 'Existing absolute output directory is required.' >&2; exit 2; }
 [[ -z "$(git -C "$source_root" status --porcelain=v1 --untracked-files=all)" ]] || { echo 'Release source must be clean.' >&2; exit 1; }
 source_revision="$(git -C "$source_root" rev-parse --verify HEAD)"
 version="$(python3 - "$source_root/Cargo.toml" <<'VERSION'
@@ -77,26 +75,16 @@ mkdir -p "$work/stage/bin" "$work/stage/share/systemd" "$work/stage/config" "$wo
 git init --quiet "$work/xssi"
 git -C "$work/xssi" remote add origin https://github.com/isarmg/xssi.git
 python3 - "$work/xssi" "$xssi_revision" <<'FETCH'
-import base64,os,subprocess,sys
+import os,subprocess,sys
 root,revision=sys.argv[1:]
-environment=os.environ.copy()
-# Scope optional read-only private-repository authentication to this Git fetch.
-# The token is neither put in URLs nor passed as a command argument or logged.
-token=environment.pop('XSSI_REPOSITORY_TOKEN','')
+environment={key:value for key,value in os.environ.items()
+             if not any(part in key.upper() for part in ('TOKEN','PASSWORD','SECRET','SIGNING','PRIVATE_KEY'))}
 environment['GIT_TRACE_REDACT']='1'
 environment['GIT_TERMINAL_PROMPT']='0'
-if token and any(character.isspace() for character in token): raise SystemExit('Repository access token has an invalid shape')
-if environment.get('GITHUB_ACTIONS')=='true' and not token: raise SystemExit('XSSI_REPOSITORY_TOKEN with read-only private repository access is required in CI')
-if token:
-    count=int(environment.get('GIT_CONFIG_COUNT','0'))
-    environment[f'GIT_CONFIG_KEY_{count}']='http.https://github.com/isarmg/xssi.git.extraheader'
-    encoded=base64.b64encode(('x-access-token:'+token).encode()).decode()
-    environment[f'GIT_CONFIG_VALUE_{count}']='AUTHORIZATION: basic '+encoded
-    environment['GIT_CONFIG_COUNT']=str(count+1)
-result=subprocess.run(['git','-C',root,'fetch','--quiet','--depth=1','origin',revision],env=environment)
-if result.returncode: raise SystemExit('Unable to fetch the pinned xssi source; verify read-only repository access')
+subprocess.run(['git','-C',root,'fetch','--quiet','--depth=1','origin',revision],env=environment,check=True)
 FETCH
-unset XSSI_REPOSITORY_TOKEN
+export XSSI_BUILD_TOOLS_DIR="$work/xssi"
+export XSSI_FRONTEND_METADATA_FILE="$work/metadata/frontend.json"
 git -C "$work/xssi" checkout --quiet --detach FETCH_HEAD
 [[ "$(git -C "$work/xssi" rev-parse HEAD)" = "$xssi_revision" ]]
 npm ci --prefix "$source_root/web"
@@ -119,25 +107,47 @@ with open(binary_file,'rb') as stream: digest=hashlib.file_digest(stream,'sha256
 if digest!=receipt['binary_sha256']: raise SystemExit('Staged binary was replaced after verification')
 RECEIPT
 install -m 0644 "$work/metadata/$product-state-contract.json" "$work/stage/share/state-contract.json"
+install -d -m 0755 "$work/stage/share/contracts"
+cp -a -- "$work/metadata/contracts/." "$work/stage/share/contracts/"
 install -m 0644 "$work/metadata/$product-web-assets.json" "$work/stage/share/web-assets.json"
 install -m 0644 "$source_root/LICENSE" "$work/stage/share/LICENSE"
 install -m 0644 "$source_root/config/xcos.json.example" "$work/stage/config/config.json.example"
 install -m 0644 "$source_root/config/mediamtx.env.example" "$work/stage/config/mediamtx.env.example"
 install -m 0644 "$source_root/config/mediamtx.lock" "$work/stage/share/mediamtx.lock"
 install -m 0644 "$source_root/config/mediamtx.yml" "$work/stage/share/mediamtx.yml"
-for unit in xcos.service xcos-mediamtx.service; do install -m 0644 "$source_root/deploy/$unit" "$work/stage/share/systemd/$unit"; done
 media_version="$(sed -n 's/^version=//p' "$source_root/config/mediamtx.lock")"
 media_hash="$(sed -n 's/^sha256=//p' "$source_root/config/mediamtx.lock")"
 [[ "$media_version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ && "$media_hash" =~ ^[0-9a-f]{64}$ ]]
-curl --fail --location --retry 3 --output "$work/media.tar.gz" "https://github.com/bluenviron/mediamtx/releases/download/$media_version/mediamtx_${media_version}_linux_amd64.tar.gz"
-tar -xzf "$work/media.tar.gz" -C "$work" mediamtx LICENSE
+curl --fail --location --proto '=https' --proto-redir '=https' --max-filesize 83886080 --max-time 600 --retry 3 --output "$work/media.tar.gz" "https://github.com/bluenviron/mediamtx/releases/download/$media_version/mediamtx_${media_version}_linux_amd64.tar.gz"
+python3 - "$work/media.tar.gz" "$work" <<'MEDIA'
+import pathlib,sys,tarfile
+destination=pathlib.Path(sys.argv[2]);expected={'mediamtx':64*1024*1024,'LICENSE':65536}
+with tarfile.open(sys.argv[1],'r:gz') as archive:
+    selected={};count=0;expanded=0
+    for item in archive:
+        count+=1;expanded+=item.size
+        name=pathlib.PurePosixPath(item.name)
+        if count>128 or item.size<0 or expanded>80*1024*1024 or name.is_absolute() or '..' in name.parts or not (item.isfile() or item.isdir()):
+            raise SystemExit('MediaMTX archive contains uncontrolled entries or exceeds its bound')
+        if item.name not in expected:continue
+        if item.name in selected or not item.isfile() or not 0<item.size<=expected[item.name]:
+            raise SystemExit('Uncontrolled MediaMTX payload entry')
+        selected[item.name]=item
+    if set(selected)!=set(expected):raise SystemExit('Incomplete MediaMTX payload')
+    for name,item in selected.items():
+        with archive.extractfile(item) as source,(destination/name).open('xb') as output:
+            content=source.read(item.size+1)
+            if len(content)!=item.size:raise SystemExit('MediaMTX payload size differs')
+            output.write(content)
+(destination/'mediamtx').chmod(0o755)
+MEDIA
 [[ "$(sha256sum "$work/mediamtx" | cut -d ' ' -f 1)" = "$media_hash" && "$("$work/mediamtx" --version)" = "$media_version" ]]
 install -m 0755 "$work/mediamtx" "$work/stage/bin/mediamtx"
 install -m 0644 "$work/LICENSE" "$work/stage/share/MediaMTX-LICENSE"
 export XSSI_SOURCE_REVISION="$source_revision"
 export XSSI_IDENTITY_FILE="$work/metadata/$product-identity.json"
 export XSSI_SCHEMA_FILE="$work/metadata/$product-schema.json"
-export XSSI_SIGNING_KEY="$signing_key"
+export XSSI_MEDIA_ARCHIVE="$work/media.tar.gz"
 bash "$work/xssi/scripts/build-package.sh" "$product" "$source_root" "$work/stage"
 [[ "$(git -C "$source_root" rev-parse HEAD)" = "$source_revision" && -z "$(git -C "$source_root" status --porcelain=v1 --untracked-files=all)" ]] || { echo 'Private source changed during build.' >&2; exit 1; }
 [[ "$(git -C "$original_source" rev-parse HEAD)" = "$source_revision" && "$(git -C "$original_source" rev-parse "refs/tags/v$version^{commit}")" = "$source_revision" ]] || { echo 'Release identity changed during build.' >&2; exit 1; }

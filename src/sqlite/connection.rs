@@ -1,25 +1,25 @@
 use super::{
-    current_schema_identity, database_path,
-    lease::validate_global_lease_table,
-    paths::{
-        require_real_parent, require_secure_database_file, sqlite_generation_paths, sync_parent,
-    },
+    current_schema_identity, lease::validate_global_lease_table,
+    paths::require_secure_database_file,
+};
+#[cfg(test)]
+use super::{
+    database_path,
+    paths::{require_real_parent, sqlite_generation_paths, sync_parent},
     APPLICATION, CURRENT_SCHEMA, CURRENT_SCHEMA_REVISION, CURRENT_SCHEMA_SHA256,
 };
 use anyhow::Context;
+#[cfg(test)]
 use chrono::Utc;
 use sqlx::{
     sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous},
     ConnectOptions, Connection, SqliteConnection, SqlitePool,
 };
-#[cfg(unix)]
+#[cfg(test)]
+use std::fs::{self, File, OpenOptions};
+#[cfg(test)]
 use std::os::unix::fs::OpenOptionsExt;
-use std::{
-    fs::{self, File, OpenOptions},
-    path::Path,
-    str::FromStr,
-    time::Duration,
-};
+use std::{path::Path, str::FromStr, time::Duration};
 
 const MAX_CONNECTIONS: u32 = 10;
 const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
@@ -35,6 +35,7 @@ async fn apply_connection_limits(connection: &mut SqliteConnection) -> Result<()
         .map_err(|error| sqlx::Error::Configuration(Box::new(error)))
 }
 
+#[cfg(test)]
 pub async fn open_pool(database_url: &str, temporary_root: &Path) -> anyhow::Result<SqlitePool> {
     open_pool_with_limit(database_url, MAX_CONNECTIONS, temporary_root).await
 }
@@ -86,13 +87,7 @@ pub(crate) fn history_error(error: sqlx::Error) -> crate::error::AppError {
     }
 }
 
-pub(crate) async fn open_initialization_pool(
-    database_url: &str,
-    temporary_root: &Path,
-) -> anyhow::Result<SqlitePool> {
-    open_pool_with_limit(database_url, 1, temporary_root).await
-}
-
+#[cfg(test)]
 async fn open_pool_with_limit(
     database_url: &str,
     connections: u32,
@@ -139,12 +134,14 @@ async fn connect_current_pool(database_url: &str, connections: u32) -> anyhow::R
     Ok(pool)
 }
 
+#[cfg(test)]
 fn prepare_current_database(database_url: &str, temporary_root: &Path) -> anyhow::Result<()> {
     let path = database_path(database_url)?;
     require_real_parent(&path)?;
     validate_current_database(&path, temporary_root)
 }
 
+#[cfg(test)]
 pub(crate) fn validate_current_database(path: &Path, temporary_root: &Path) -> anyhow::Result<()> {
     validated_snapshot(path, temporary_root)?;
     Ok(())
@@ -199,9 +196,8 @@ pub(crate) async fn current_validation_snapshot(
         .await?)
 }
 
-/// The caller holds the product's private state directory and maintenance role.
-/// SQLx does not offer SQLITE_OPEN_NOFOLLOW; the path and held directory checks
-/// protect this source, while untrusted current-state reads use a private copy.
+/// Test fixtures open only their own current-generation database.
+#[cfg(test)]
 pub(crate) async fn connect_existing(
     path: &Path,
     read_only: bool,
@@ -223,6 +219,7 @@ pub(crate) async fn connect_existing(
     Ok(connection)
 }
 
+#[cfg(test)]
 pub(crate) fn initialize_current_database(path: &Path) -> anyhow::Result<()> {
     let mut options = OpenOptions::new();
     options.write(true).create_new(true);
@@ -246,7 +243,7 @@ pub(crate) fn initialize_current_database(path: &Path) -> anyhow::Result<()> {
                 let actual=xcss::sqlite::schema_fingerprint(&mut *transaction).await?;
                 current_schema_identity()?.verify_fingerprint(&actual)?;
                 sqlx::query("INSERT INTO product_metadata(singleton,application,application_version,schema_revision,schema_sha256) VALUES(1,?,?,?,?)")
-                    .bind(APPLICATION).bind("xcos-db-v2").bind(CURRENT_SCHEMA_REVISION).bind(CURRENT_SCHEMA_SHA256)
+                    .bind(APPLICATION).bind(crate::schema_definition::APPLICATION_VERSION).bind(CURRENT_SCHEMA_REVISION).bind(CURRENT_SCHEMA_SHA256)
                     .execute(&mut *transaction).await?;
                 validate_current_connection(&mut transaction).await
             }.await;
