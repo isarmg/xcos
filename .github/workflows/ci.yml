@@ -151,6 +151,17 @@ jobs:
         run: cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
       - name: Test all features
         run: cargo test --locked --workspace --all-features
+      - name: Exercise the real pinned companion configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          companion_dir="$(mktemp -d)"
+          curl --fail --location --retry 3 --output "$companion_dir/mediamtx.tar.gz" \
+            https://github.com/bluenviron/mediamtx/releases/download/v1.20.0/mediamtx_v1.20.0_linux_amd64.tar.gz
+          tar -xzf "$companion_dir/mediamtx.tar.gz" -C "$companion_dir" mediamtx
+          python3 scripts/companion-smoke-test.py "$companion_dir/mediamtx"
+          XCOS_TEST_MEDIAMTX="$companion_dir/mediamtx" \
+            cargo test --locked --all-features --test runtime_smoke -- --ignored --nocapture
 
   native-shell:
     needs: scope
@@ -188,12 +199,3 @@ jobs:
           web/node_modules/.bin/xcss-build-server --config "$PWD/xcss-web-build.json" --mode development --web-only --no-install
       - name: Verify systemd controls and release packaging
         run: ./scripts/check-deployment.sh
-      - name: Exercise the real pinned companion configuration
-        shell: bash
-        run: |
-          set -euo pipefail
-          companion_dir="$(mktemp -d)"
-          curl --fail --location --retry 3 --output "$companion_dir/mediamtx.tar.gz" \
-            https://github.com/bluenviron/mediamtx/releases/download/v1.20.0/mediamtx_v1.20.0_linux_amd64.tar.gz
-          tar -xzf "$companion_dir/mediamtx.tar.gz" -C "$companion_dir" mediamtx
-          python3 scripts/companion-smoke-test.py "$companion_dir/mediamtx"
