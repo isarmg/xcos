@@ -1,6 +1,6 @@
 # 配置与网络
 
-应用配置为 `ROOT/config/config.json`，归 `isarmg-xcos:isarmg-xcos`，文件0600、父目录0700。
+应用配置为 `ROOT/config/config.json`。XSSI 安装后归 `root:isarmg-xcos`，文件权限为 0640、父目录权限为 0750；配置由管理员控制，服务账号只读。
 配置文件必须存在；缺失、权限或格式错误均失败。已声明 `XCOS_*` 环境变量覆盖当前 JSON。
 优先级：产品前缀环境 > JSON > 默认值（server CLI 仅指定 ROOT）。旧字段与旧环境别名不支持。
 
