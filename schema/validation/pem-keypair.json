@@ -1,5 +1,21 @@
 [
   {
+    "name": "generated-matching-keypair",
+    "input": {
+      "fixture": "openssl-generated-p256-keypair-v1",
+      "relationship": "matching"
+    },
+    "valid": true
+  },
+  {
+    "name": "generated-mismatched-keypair",
+    "input": {
+      "fixture": "openssl-generated-p256-keypair-v1",
+      "relationship": "mismatched"
+    },
+    "valid": false
+  },
+  {
     "name": "invalid-certificate",
     "input": {
       "certificate_pem": "not a PEM certificate",
