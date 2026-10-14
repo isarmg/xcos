@@ -212,6 +212,15 @@ pub(crate) fn emit(
     database["name"] = json!("application");
     database["path"] = data("app.sqlite3");
     database["ddl"] = asset(&directory, "current-schema.sql", ddl.as_bytes());
+    database["initialize"].as_array_mut().unwrap().push(json!({
+        "sql":crate::schema_definition::INITIAL_RECONCILER_LEASE_SQL,
+        "parameters":[],"expected_changes":1
+    }));
+    database["checks"].as_array_mut().unwrap().push(json!({
+        "name":"current-reconciler-lease-singleton",
+        "sql":"SELECT COUNT(*)=1 AND MIN(CASE WHEN typeof(singleton)='integer' AND singleton=1 AND typeof(updated_at)='text' AND ((lease_owner IS NULL AND lease_expires_at IS NULL) OR (typeof(lease_owner)='text' AND typeof(lease_expires_at)='text' AND julianday(lease_expires_at)>julianday(updated_at))) THEN 1 ELSE 0 END)=1 FROM media_reconciler_leases",
+        "parameters":[],"expect":"true"
+    }));
     database["validation"] = json!([{"kind":"sgev-authorization-v1","description":"Current camera authorization envelope and plaintext digest",
         "parameters":{"query":"SELECT CAST(id AS BLOB) AS identity,authorization_code_enc AS ciphertext,authorization_code_hash AS digest FROM xcocs",
             "maximum_rows":2000000,"maximum_ciphertext_bytes":crate::persistent_crypto_definition::MAX_AUTHORIZATION_ENVELOPE_BYTES,
@@ -219,6 +228,16 @@ pub(crate) fn emit(
             "binding":"length-prefixed-uuid-text","key_secret":"instance.credentials_key","digest_encoding":"raw",
             "plaintext_bytes":crate::persistent_crypto_definition::AUTHORIZATION_CODE_BYTES,"nullable":false},
         "cases":serde_json::from_str::<Value>(include_str!("../schema/validation/authorization.json")).unwrap()}]);
+    database["validation"].as_array_mut().unwrap().push(json!({
+        "kind":"sqlite-json-schema-v1",
+        "description":"One current media reconciler lease with canonical UTC timestamps and UUIDv4 ownership",
+        "parameters":{
+            "query":"SELECT json_object('singleton',singleton,'lease_owner',lease_owner,'lease_expires_at',lease_expires_at,'updated_at',updated_at) AS value FROM media_reconciler_leases",
+            "schema":serde_json::from_str::<Value>(include_str!("../schema/reconciler-lease.json")).unwrap(),
+            "rules":[],"maximum_bytes":4096,"maximum_rows":1
+        },
+        "cases":serde_json::from_str::<Value>(include_str!("../schema/validation/reconciler-lease.json")).unwrap()
+    }));
     material["databases"] = json!([database]);
     let mut config =
         xcss::configuration_contract::generate::<crate::config_definition::Settings>().unwrap();
@@ -375,12 +394,24 @@ pub(crate) fn emit(
             include_bytes!("installation_definition.rs").as_slice(),
         ),
         (
+            "src/schema_definition.rs",
+            include_bytes!("schema_definition.rs").as_slice(),
+        ),
+        (
             "schema/product.sql",
             include_bytes!("../schema/product.sql").as_slice(),
         ),
         (
             "schema/validation/authorization.json",
             include_bytes!("../schema/validation/authorization.json").as_slice(),
+        ),
+        (
+            "schema/reconciler-lease.json",
+            include_bytes!("../schema/reconciler-lease.json").as_slice(),
+        ),
+        (
+            "schema/validation/reconciler-lease.json",
+            include_bytes!("../schema/validation/reconciler-lease.json").as_slice(),
         ),
         (
             "schema/validation/pem-keypair.json",

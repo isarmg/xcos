@@ -191,3 +191,42 @@ fn normalize_sql(value: &str) -> String {
         .flat_map(char::to_lowercase)
         .collect()
 }
+
+#[cfg(test)]
+mod exported_contract_tests {
+    use super::validate_global_lease_values;
+    use serde_json::Value;
+
+    fn storage(value: &Value) -> &str {
+        match value {
+            Value::Null => "null",
+            Value::String(_) => "text",
+            Value::Number(number) if number.is_i64() => "integer",
+            Value::Number(_) => "real",
+            _ => "unsupported",
+        }
+    }
+
+    #[test]
+    fn installation_lease_examples_match_the_native_current_state_validator() {
+        let cases: Vec<Value> = serde_json::from_str(include_str!(
+            "../../schema/validation/reconciler-lease.json"
+        ))
+        .unwrap();
+        for case in cases {
+            let row = &case["input"];
+            let valid = validate_global_lease_values(
+                storage(&row["singleton"]),
+                row["singleton"].as_i64().unwrap_or(0),
+                storage(&row["lease_owner"]),
+                row["lease_owner"].as_str(),
+                storage(&row["lease_expires_at"]),
+                row["lease_expires_at"].as_str(),
+                storage(&row["updated_at"]),
+                row["updated_at"].as_str().unwrap_or(""),
+            )
+            .is_ok();
+            assert_eq!(valid, case["valid"].as_bool().unwrap(), "{}", case["name"]);
+        }
+    }
+}

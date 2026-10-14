@@ -1,0 +1,172 @@
+[
+  {
+    "name": "initial-free-lease",
+    "input": {
+      "singleton": 1,
+      "lease_owner": null,
+      "lease_expires_at": null,
+      "updated_at": "1970-01-01T00:00:00+00:00"
+    },
+    "valid": true
+  },
+  {
+    "name": "canonical-millisecond",
+    "input": {
+      "singleton": 1,
+      "lease_owner": null,
+      "lease_expires_at": null,
+      "updated_at": "2026-10-14T00:00:00.123+00:00"
+    },
+    "valid": true
+  },
+  {
+    "name": "canonical-microsecond",
+    "input": {
+      "singleton": 1,
+      "lease_owner": null,
+      "lease_expires_at": null,
+      "updated_at": "2026-10-14T00:00:00.000123+00:00"
+    },
+    "valid": true
+  },
+  {
+    "name": "canonical-nanosecond",
+    "input": {
+      "singleton": 1,
+      "lease_owner": null,
+      "lease_expires_at": null,
+      "updated_at": "2026-10-14T00:00:00.000000123+00:00"
+    },
+    "valid": true
+  },
+  {
+    "name": "current-owned-lease",
+    "input": {
+      "singleton": 1,
+      "lease_owner": "00c63808-96f9-4d89-92c0-11a1395182ba",
+      "lease_expires_at": "2026-10-14T00:00:01+00:00",
+      "updated_at": "2026-10-14T00:00:00+00:00"
+    },
+    "valid": true
+  },
+  {
+    "name": "wrong-singleton",
+    "input": {
+      "singleton": 2,
+      "lease_owner": null,
+      "lease_expires_at": null,
+      "updated_at": "1970-01-01T00:00:00+00:00"
+    },
+    "valid": false
+  },
+  {
+    "name": "text-singleton",
+    "input": {
+      "singleton": "1",
+      "lease_owner": null,
+      "lease_expires_at": null,
+      "updated_at": "1970-01-01T00:00:00+00:00"
+    },
+    "valid": false
+  },
+  {
+    "name": "non-UTC",
+    "input": {
+      "singleton": 1,
+      "lease_owner": null,
+      "lease_expires_at": null,
+      "updated_at": "2026-10-14T08:00:00+08:00"
+    },
+    "valid": false
+  },
+  {
+    "name": "noncanonical-z",
+    "input": {
+      "singleton": 1,
+      "lease_owner": null,
+      "lease_expires_at": null,
+      "updated_at": "2026-10-14T00:00:00Z"
+    },
+    "valid": false
+  },
+  {
+    "name": "noncanonical-fraction",
+    "input": {
+      "singleton": 1,
+      "lease_owner": null,
+      "lease_expires_at": null,
+      "updated_at": "2026-10-14T00:00:00.123000+00:00"
+    },
+    "valid": false
+  },
+  {
+    "name": "noncanonical-zero-fraction",
+    "input": {
+      "singleton": 1,
+      "lease_owner": null,
+      "lease_expires_at": null,
+      "updated_at": "2026-10-14T00:00:00.000+00:00"
+    },
+    "valid": false
+  },
+  {
+    "name": "invalid-calendar-date",
+    "input": {
+      "singleton": 1,
+      "lease_owner": null,
+      "lease_expires_at": null,
+      "updated_at": "2026-02-30T00:00:00+00:00"
+    },
+    "valid": false
+  },
+  {
+    "name": "missing-updated-time",
+    "input": {
+      "singleton": 1,
+      "lease_owner": null,
+      "lease_expires_at": null,
+      "updated_at": null
+    },
+    "valid": false
+  },
+  {
+    "name": "uppercase-owner",
+    "input": {
+      "singleton": 1,
+      "lease_owner": "00C63808-96F9-4D89-92C0-11A1395182BA",
+      "lease_expires_at": "2026-10-14T00:00:01+00:00",
+      "updated_at": "2026-10-14T00:00:00+00:00"
+    },
+    "valid": false
+  },
+  {
+    "name": "non-v4-owner",
+    "input": {
+      "singleton": 1,
+      "lease_owner": "00c63808-96f9-1d89-92c0-11a1395182ba",
+      "lease_expires_at": "2026-10-14T00:00:01+00:00",
+      "updated_at": "2026-10-14T00:00:00+00:00"
+    },
+    "valid": false
+  },
+  {
+    "name": "free-with-expiry",
+    "input": {
+      "singleton": 1,
+      "lease_owner": null,
+      "lease_expires_at": "2026-10-14T00:00:01+00:00",
+      "updated_at": "1970-01-01T00:00:00+00:00"
+    },
+    "valid": false
+  },
+  {
+    "name": "owned-without-expiry",
+    "input": {
+      "singleton": 1,
+      "lease_owner": "00c63808-96f9-4d89-92c0-11a1395182ba",
+      "lease_expires_at": null,
+      "updated_at": "2026-10-14T00:00:00+00:00"
+    },
+    "valid": false
+  }
+]

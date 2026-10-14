@@ -110,7 +110,7 @@ install -m 0644 "$work/metadata/$product-state-contract.json" "$work/stage/share
 install -d -m 0755 "$work/stage/share/contracts"
 cp -a -- "$work/metadata/contracts/." "$work/stage/share/contracts/"
 install -m 0644 "$work/metadata/$product-web-assets.json" "$work/stage/share/web-assets.json"
-install -m 0644 "$source_root/LICENSE" "$work/stage/share/LICENSE"
+install -m 0644 "$source_root/LICENSE-APACHE" "$work/stage/share/LICENSE"
 install -m 0644 "$source_root/config/xcos.json.example" "$work/stage/config/config.json.example"
 install -m 0644 "$source_root/config/mediamtx.env.example" "$work/stage/config/mediamtx.env.example"
 install -m 0644 "$source_root/config/mediamtx.lock" "$work/stage/share/mediamtx.lock"

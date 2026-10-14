@@ -238,7 +238,7 @@ pub(crate) fn initialize_current_database(path: &Path) -> anyhow::Result<()> {
                 sqlx::raw_sql(CURRENT_SCHEMA).execute(&mut *transaction).await?;
                 sqlx::query("INSERT INTO _common_platform_metadata(singleton,platform_generation,platform_schema_revision,profile,created_at_micros) VALUES(1,1,1,'server-control-plane',?)")
                     .bind(Utc::now().timestamp_micros()).execute(&mut *transaction).await?;
-                sqlx::query("INSERT INTO media_reconciler_leases(singleton,updated_at) VALUES(1,'1970-01-01T00:00:00+00:00')")
+                sqlx::query(crate::schema_definition::INITIAL_RECONCILER_LEASE_SQL)
                     .execute(&mut *transaction).await?;
                 let actual=xcss::sqlite::schema_fingerprint(&mut *transaction).await?;
                 current_schema_identity()?.verify_fingerprint(&actual)?;

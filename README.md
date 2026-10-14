@@ -30,3 +30,7 @@ bash scripts/package-release.sh --output-dir "$output"
 ```
 
 输出 `xcos-VERSION-linux-x86_64.tar.gz` 和 `SHA256SUMS`；包内SHA-256 文件清单覆盖程序、辅助工具、资源及 systemd 模板。[详细文档](docs/README.md)。
+
+## 许可
+
+Xcos 使用 [Apache-2.0](LICENSE-APACHE) 许可。发行包在 `share/LICENSE` 提供许可证原文；第三方组件保留各自的许可声明和原始许可文件。
