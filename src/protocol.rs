@@ -42,9 +42,16 @@ mod tests {
     fn rust_web_and_mediamtx_share_the_current_protocol_contract() {
         assert_eq!(CONTRACT.media_jwt_issuer, "xcos/1.0.0");
 
-        let web = include_str!("../web/src/api.ts");
-        assert!(web.contains("export function apiPath"));
-        assert!(!web.contains("\"/api/"));
+        let web = include_str!("../web/leptos/src/model.rs");
+        assert!(web.contains("format!(\"/api/v1{path}\")"));
+        let transport = include_str!("../web/leptos/vendor/xcss-web/src/api.rs");
+        assert!(transport.contains("path.starts_with(\"/api/v1/\")"));
+        assert!(
+            web.match_indices("\"/api/").all(|(index, _)| {
+                web[index..].starts_with("\"/api/v1{") || web[index..].starts_with("\"/api/v1/")
+            }),
+            "browser request literals must keep the versioned API prefix"
+        );
         let vite = include_str!("../web/vite.config.ts");
         assert!(vite.contains("\"/api/v1\": \"http://127.0.0.1:18106\""));
         assert!(!vite.contains("\"/api\":"));

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { isSameOriginMediaUrl, requireSameOriginMediaUrl, whepResourceUrl } from "../src/media-url.ts";
+import { isSameOriginMediaUrl, requireSameOriginMediaUrl, whepResourceUrl } from "./fixtures/legacy/media-url.ts";
 
 const page = "https://monitor.example/app";
 

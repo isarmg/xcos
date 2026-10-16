@@ -1,4 +1,6 @@
-//! xcss-generated inventory and bytes are part of this executable.
+#[path = "leptos_assets.rs"]
+mod leptos_assets;
+// xcss-generated inventory and bytes are part of this executable.
 include!(concat!(env!("OUT_DIR"), "/xcss-web-assets.rs"));
 
 pub fn embedded_contract_sha256() -> anyhow::Result<String> {
@@ -13,11 +15,11 @@ pub(crate) async fn serve(
     let response = if let Some(directory) = state.web_directory.as_deref() {
         directory.response(request.uri().path(), request.method(), request.headers())
     } else {
-        xcss::web_assets::response(
-            ASSETS,
+        leptos_assets::response(
             request.uri().path(),
             request.method(),
             request.headers(),
+            |path, method, headers| xcss::web_assets::response(ASSETS, path, method, headers),
         )
     };
     response.map(axum::body::Body::from)

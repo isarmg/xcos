@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { cameraSnapshot, effectiveStatus, isCameraObservation, remainingObservationMs } from "../src/camera-status.ts";
+import { cameraSnapshot, effectiveStatus, isCameraObservation, remainingObservationMs } from "./fixtures/legacy/camera-status.ts";
 import { loadOriginalMain } from "./fixtures/original-main.mjs";
 import { HookHost, textContent } from "./fixtures/hook-host.mjs";
 

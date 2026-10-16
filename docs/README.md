@@ -17,3 +17,5 @@
 - [从零读懂 xcos](beginner-guide/README.md)：按章节学习 Rust、Web 和媒体服务。
 - [账号设置](account-settings.md)、[仓库职责](repository-boundary.md)、[公共支撑](common-support.md)、[安全审查](unsafe-audit.md)。
 - [1.0.0 发行记录](releases/1.0.0.md)、[项目首页](../README.md)。
+
+- [Leptos 管理前端维护](leptos-web.md)：Rust/WASM 工具链、边界、资源清单和真实浏览器验收。

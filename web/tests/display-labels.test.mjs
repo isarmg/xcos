@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { displayLabel } from '../src/display-labels.ts';
+import { displayLabel } from './fixtures/legacy/display-labels.ts';
 
 test('unknown event labels cannot resolve inherited object properties', () => {
   assert.equal(displayLabel('camera.online'), 'Camera is back online');

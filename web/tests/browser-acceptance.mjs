@@ -87,13 +87,16 @@ try {
           constructor(...args) { super(...args); window.activePaginationSource = this; }
         };
       });
+      const wasmLoads = [];
+      page.on("request", request => { if (new URL(request.url()).pathname.endsWith(".wasm")) wasmLoads.push(request.url()); });
       const errors = [], paths = [], ptz = [], eventQueries = [], logQueries = [], recordingPlaybackQueries = [], commandReceipts = new Map();
       const auditFailureRequests = [];
       let historyResponseDelayMs = 0;
       let acknowledged = false, holdSystem = false, releaseSystem = null, serverToday = "2026-09-04", clients = [{ ...activeInstance }, { ...pendingInstance }], cameras = [camera];
       const boundedName = `\uFEFF${"x".repeat(63)}`;
       const expectedNames = ["Renamed instance", "\uFEFFRenamed instance\uFEFF", "Renamed instance", boundedName, "Renamed instance"];
-      page.on("pageerror", error => errors.push(error.message));
+      page.on("pageerror", error => { errors.push(error.message); console.error(error.stack); });
+      page.on("console", message => { if (message.type() === "error" && /panicked|unreachable|disposed/.test(message.text())) console.error(message.text()); });
       await page.route("**/api/v1/**", async route => {
         const request = route.request(), url = new URL(request.url()), path = url.pathname;
         paths.push(path);
@@ -183,6 +186,8 @@ try {
         throw new Error(`Unexpected API request ${request.method()} ${path}`);
       });
       await page.goto(`http://127.0.0.1:${address.port}/#instances`);
+      await expect(page.locator("html")).toHaveAttribute("data-xcss-runtime", "leptos", { timeout: 30_000 });
+      await expect.poll(() => wasmLoads.length).toBe(1);
       const instanceTable = page.getByRole("table", { name: "摄像机实例列表" });
       const statistics = page.getByRole("table", { name: "实例统计" });
       await expect(page.locator("h2").filter({ hasText: /^(实例|实例列表|统计)$/ })).toHaveCount(0);
@@ -266,6 +271,11 @@ try {
       await expect(page.getByRole("region", { name: "摄像机状态" })).toContainText("0.3.0");
       await expect(page.getByRole("complementary")).toHaveCount(0);
       await expect(page.locator(".xcss-instance-sidebar, .xcss-instance-workspace")).toHaveCount(0);
+      const cameraSearch = page.getByRole("searchbox", { name: "搜索摄像头", exact: true });
+      await cameraSearch.fill("no-camera-matches-this-query");
+      await expect(page.getByText("该客户端还没有上报匹配的摄像头。", { exact: true })).toBeVisible();
+      await expect(page.locator(".camera-card")).toHaveCount(0);
+      await cameraSearch.fill("");
       await page.getByRole("button", { name: "查看与控制", exact: true }).click();
       const movement = page.getByRole("button", { name: "云台向上", exact: true });
       await movement.focus(); await page.keyboard.down("Space"); await page.keyboard.up("Space");
@@ -421,7 +431,7 @@ try {
       await page.evaluate(() => window.activePaginationSource.close());
       const failingRefresh = page.getByRole("group", { name: "全局操作" }).getByRole("button", { name: "刷新", exact: true });
       // A reconnect before this click must not consume the explicit request's
-      // failure. Arm only inside the target's real click, before React handles it.
+      // failure. Arm only inside the target's real click, before the UI handles it.
       await failingRefresh.evaluate(button => button.addEventListener("click", () => {
         window.injectAuditFailureForClick = true;
         setTimeout(() => { window.injectAuditFailureForClick = false; }, 0);

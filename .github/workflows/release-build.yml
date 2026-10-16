@@ -11,7 +11,7 @@ jobs:
     permissions:
       contents: read
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 90
     steps:
       - name: Check out the exact annotated release tag
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -47,11 +47,20 @@ jobs:
           python3 "$foundation_root/scripts/xcss-conformance.py" \
             verify-manifest --product-root "$GITHUB_WORKSPACE"
       - name: Install pinned Rust
-        run: rustup toolchain install 1.99.0 --profile minimal
+        run: |
+          rustup toolchain install 1.99.0 --profile minimal
+          rustup target add wasm32-unknown-unknown --toolchain 1.99.0
+          cargo +1.99.0 install wasm-bindgen-cli --version 0.2.129 --locked
       - name: Install locked inventory tools
         run: |
           cargo install cargo-audit --version 0.22.2 --locked
           cargo install cargo-cyclonedx --version 0.5.9 --locked
+      - name: Audit both locked Rust dependency graphs
+        run: |
+          cargo +1.99.0 fetch --locked
+          cargo audit --deny yanked
+          cargo +1.99.0 fetch --manifest-path web/leptos/Cargo.toml --locked
+          cargo audit --file web/leptos/Cargo.lock --deny yanked
       - name: Install pinned Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:

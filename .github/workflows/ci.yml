@@ -66,7 +66,7 @@ jobs:
     permissions:
       contents: read
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 60
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -77,12 +77,20 @@ jobs:
         with:
           node-version: 26.7.0
           check-latest: false
+      - name: Install pinned Rust browser toolchain
+        run: |
+          rustup toolchain install 1.99.0 --profile minimal --component rustfmt,clippy
+          rustup target add wasm32-unknown-unknown --toolchain 1.99.0
+          cargo +1.99.0 install wasm-bindgen-cli --version 0.2.129 --locked
       - name: Build the pinned Web dependency graph
         run: |
           node --version
           npm --version
+          python3 scripts/test-leptos-build.py
           npm ci --prefix web
           npm run check:xcss --prefix web
+          cargo +1.99.0 fmt --manifest-path web/leptos/Cargo.toml -- --check
+          CARGO_TARGET_DIR=target/leptos cargo +1.99.0 clippy --manifest-path web/leptos/Cargo.toml --locked --target wasm32-unknown-unknown --all-targets --no-deps -- -D warnings
           npm run test:unit --prefix web
           npm run build --prefix web
       - name: Install acceptance browsers
@@ -98,7 +106,7 @@ jobs:
     permissions:
       contents: read
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -133,7 +141,10 @@ jobs:
           python3 "$foundation_root/scripts/xcss-conformance.py" \
             verify-manifest --product-root "$GITHUB_WORKSPACE"
       - name: Install Rust 1.99
-        run: rustup toolchain install 1.99.0 --profile minimal --component rustfmt,clippy
+        run: |
+          rustup toolchain install 1.99.0 --profile minimal --component rustfmt,clippy
+          rustup target add wasm32-unknown-unknown --toolchain 1.99.0
+          cargo +1.99.0 install wasm-bindgen-cli --version 0.2.129 --locked
       - name: Install pinned Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
@@ -169,7 +180,7 @@ jobs:
     permissions:
       contents: read
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 60
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -193,6 +204,11 @@ jobs:
         with:
           node-version: 26.7.0
           check-latest: false
+      - name: Install pinned Rust browser toolchain
+        run: |
+          rustup toolchain install 1.99.0 --profile minimal
+          rustup target add wasm32-unknown-unknown --toolchain 1.99.0
+          cargo +1.99.0 install wasm-bindgen-cli --version 0.2.129 --locked
       - name: Build embedded Web inputs for deployment tests
         run: |
           npm ci --prefix web
@@ -226,7 +242,10 @@ jobs:
           python3 -I -B scripts/test-stage-product.py
           bash -n scripts/package-installed-candidate.sh scripts/stage-product.sh
       - name: Install exact Rust toolchain
-        run: rustup toolchain install 1.99.0 --profile minimal
+        run: |
+          rustup toolchain install 1.99.0 --profile minimal
+          rustup target add wasm32-unknown-unknown --toolchain 1.99.0
+          cargo +1.99.0 install wasm-bindgen-cli --version 0.2.129 --locked
       - name: Install exact Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
@@ -259,7 +278,7 @@ jobs:
             ~/.cargo/git/db
             target
           # No fallback keys. Only a successful main push saves this cache.
-          key: xcos-installed-release-v1-${{ runner.os }}-${{ runner.arch }}-rust-1.99.0-${{ env.SERVER_TARGET }}-${{ steps.release_environment.outputs.fingerprint }}-${{ hashFiles('Cargo.lock', '**/Cargo.toml', '**/build.rs', '.cargo/**', 'rust-toolchain.toml', 'config/xssi.lock', 'config/mediamtx.lock', 'web/package-lock.json', 'xcss-web-build.json', '.github/workflows/ci.yml') }}
+          key: xcos-installed-release-v1-${{ runner.os }}-${{ runner.arch }}-rust-1.99.0-${{ env.SERVER_TARGET }}-${{ steps.release_environment.outputs.fingerprint }}-${{ hashFiles('Cargo.lock', 'web/leptos/Cargo.lock', 'scripts/build-leptos.py', '**/Cargo.toml', '**/build.rs', '.cargo/**', 'rust-toolchain.toml', 'config/xssi.lock', 'config/mediamtx.lock', 'web/package-lock.json', 'xcss-web-build.json', '.github/workflows/ci.yml') }}
       - name: Discard cached first-party candidate products
         run: |
           cargo clean --package xcos --release --target "$SERVER_TARGET"

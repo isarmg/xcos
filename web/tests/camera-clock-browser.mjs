@@ -49,6 +49,7 @@ try {
             throw new Error(`Unexpected API request ${route.request().method()} ${path}`);
           });
           await page.goto(`http://127.0.0.1:${address.port}/#instances`);
+          await expect(page.locator("html")).toHaveAttribute("data-xcss-runtime", "leptos", { timeout: 30_000 });
           const table = page.getByRole("table", { name: "摄像机实例列表", exact: true });
           const cameraStatus = table.locator("tbody tr").locator("td").nth(1);
           await expect(cameraStatus).toHaveText("在线");

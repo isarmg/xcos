@@ -22,7 +22,7 @@ curl --fail http://127.0.0.1:18106/readyz
 
 ## 构建
 
-准备 Rust 1.99.0、Node.js 26.7.0、Python 3.11+、OpenSSL 和 GNU 工具。正式打包要求干净源码、同版本 annotated tag 精确指向 HEAD、已发布的固定 xssi 提交。
+准备 Rust 1.99.0（含 `wasm32-unknown-unknown` target）、wasm-bindgen CLI 0.2.129、Node.js 26.7.0、Python 3.11+、OpenSSL 和 GNU 工具。管理 Web 使用 Rust/Leptos，后端继续使用 Axum；浏览器构建与验收命令见 [Leptos 前端维护](docs/leptos-web.md)。正式打包要求干净源码、同版本 annotated tag 精确指向 HEAD、已发布的固定 xssi 提交。
 
 ```sh
 output="$(mktemp -d /tmp/xcos-release.XXXXXXXX)"

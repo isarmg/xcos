@@ -1,9 +1,26 @@
 import { xcssFontLicenses, xssiRuntimeInventory } from "./font-licenses.mjs";
-import { createXcssReactViteConfig } from "@xcss/web/web-toolchain/vite";
-import { mergeConfig } from "vite";
+import { defineConfig } from "vite";
+import { leptosStaticAssets } from "./leptos-assets.mjs";
+import { readFileSync } from "node:fs";
 
-export default async () => mergeConfig(createXcssReactViteConfig(), {
-  plugins: [xcssFontLicenses(), ...await xssiRuntimeInventory()],
+export default async () => defineConfig({
+  plugins: [xcssFontLicenses(), ...await xssiRuntimeInventory(), leptosStaticAssets(), {
+    name: "xcos-leptos-asset-budget",
+    generateBundle(_options, bundle) {
+      this.emitFile({ type: "asset", fileName: "assets/leptos-build.json", source: readFileSync(new URL("./pkg/leptos-build.json", import.meta.url)) });
+      let total = 0;
+      for (const [name, asset] of Object.entries(bundle)) {
+        const size = asset.type === "chunk" ? Buffer.byteLength(asset.code) : typeof asset.source === "string" ? Buffer.byteLength(asset.source) : asset.source.byteLength;
+        total += size;
+        // WASM contains the complete Rust runtime and compiled application.
+        const limit = /\.woff2?$/i.test(name) ? 16 * 1024 * 1024 : /\.wasm(?:\.gz)?$/u.test(name) ? 4 * 1024 * 1024 : 512 * 1024;
+        if (name.endsWith(".map")) this.error("Frontend builds must not publish source maps");
+        if (size > limit) this.error(`Asset ${name} is ${size} bytes; budget is ${limit}`);
+      }
+      if (total > 16 * 1024 * 1024) this.error("Frontend exceeds the 16 MiB total asset budget");
+    },
+  }],
+  build: { target: "esnext", cssTarget: "esnext", modulePreload: { polyfill: false }, outDir: process.env.XCSS_WEB_DIST ?? "dist", emptyOutDir: true, sourcemap: false, assetsInlineLimit: 0, chunkSizeWarningLimit: 512 },
   server: {
     port: 5173,
     proxy: {

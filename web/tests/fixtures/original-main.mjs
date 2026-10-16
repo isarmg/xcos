@@ -2,7 +2,7 @@ import {readFile} from 'node:fs/promises';
 import {registerHooks} from 'node:module';
 import {fileURLToPath} from 'node:url';
 import {transformWithOxc} from 'vite';
-const entry=new URL('../../src/main.tsx',import.meta.url);
+const entry=new URL('./react-baseline.tsx',import.meta.url);
 const original=await readFile(entry,'utf8');
 const source=original+'\nexport { Console, ClientsView, ClientSettings, RecordingsView, CameraDrawer, CameraStatus, LiveVideo, utcDateInput, formatDate };';
 const {code}=await transformWithOxc(source,fileURLToPath(entry),{jsx:{runtime:'automatic'}});
@@ -27,7 +27,7 @@ export async function loadOriginalMain(){
  const hooks=registerHooks({
   resolve(specifier,context,next){
    if(specifier==='react'||specifier==='react/jsx-runtime')return{url:host,shortCircuit:true};
-   if(specifier==='./camera-status')return{url:new URL('../../src/camera-status.ts',import.meta.url).href,shortCircuit:true};
+   if(specifier==='./camera-status')return{url:new URL('./legacy/camera-status.ts',import.meta.url).href,shortCircuit:true};
    const stub=specifier.endsWith('.css')?'':stubs[specifier];
    if(stub!==undefined)return{url:`data:text/javascript,${encodeURIComponent(stub)}`,shortCircuit:true};
    return next(specifier,context);

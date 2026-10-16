@@ -10,7 +10,7 @@
 ```text
 xcos 1.0.0
 ├─ 构建
-│  ├─ Node 26.7.0 -> check:xcss -> TypeScript strict -> Vite 8
+│  ├─ Node 26.7.0 -> check:xcss -> Rust/Leptos WASM -> wasm-bindgen -> Vite 8
 │  ├─ Rust 1.99.0 -> x86_64-unknown-linux-gnu binary
 │  └─ Web、Rust、MediaMTX、配置 -> 不可变 release manifest
 ├─ 启动
@@ -90,7 +90,7 @@ Client Bearer token，二者均不使用浏览器 Session。
 摄像机 RTSP/ONVIF 凭据由 Client 保管，Server 摄像机表不存储 URL、username 或 password。
 一个加密授权码只对应一个摄像机实例，与 Administrator Session 始终分离。
 
-管理认证 API 和 React/Vite Web 属于 Server 控制面；Client 配对、MediaMTX internal auth、
+管理认证 API 和 Leptos/WASM Web 属于 Server 控制面；Client 配对、MediaMTX internal auth、
 媒体 JWT subject/camera/actions、录像和播放属于数据面。两类身份不得共用存储或日志字段。
 
 ## 5. 授权实例与媒体状态机
@@ -148,13 +148,13 @@ Administrator Browser Session
 package.json + package-lock.json 精确锁定 xcss 1.0.0 和工具链
   -> npm ci
   -> check:xcss
-       ├─ 校验 Node/React/TypeScript/Vite 精确版本
+       ├─ 校验 Node/Vite、Rust/WASM 和 wasm-bindgen 精确版本
        ├─ 校验一个 @xcss/web 包及 lock 来源
-       ├─ 校验认证 hook、运行时守卫和 data-xcss-scope
+       ├─ 校验共享 Rust 认证外壳、响应合同和 data-xcss-scope
        └─ 校验 token/reset/accessibility 内容摘要和品牌语义映射
-  -> TypeScript 7.0.2 strict typecheck
-  -> React 19.3.0 + ReactDOM 19.3.0
-  -> Vite 8.3.3 + @vitejs/plugin-react 6.1.2 build
+  -> web/leptos/Cargo.lock + cargo wasm32-unknown-unknown 检查与测试
+  -> Leptos 0.8.19 release + wasm-bindgen 0.2.129
+  -> Vite 8.3.3 打包 WASM、样式、字体和按需 HLS
   -> dist/index.html + hashed assets
   -> native build 纳入 release manifest
   -> relocated smoke 验证引用、重定位与篡改拒绝
@@ -172,37 +172,27 @@ npm run build
 `build` 已把 `check:xcss` 设为硬前置，因此不能通过直接执行 Vite 跳过共享边界。构建产物完全自包含；
 浏览器运行时不解析 npm 包，也不访问 npm registry、xcss 仓库或远程 CSS。
 构建期单个 @xcss/web 包候选固定xcss `v1.0.0`官方URL和真实归档的lockfile integrity；Rust revision 与 Web 归档固定正式发布输入，跨机器构建按锁文件验证。
-Rust crate 由版本 `=1.0.0` 和 revision `b34b3861e15edd2b1348e7d03b9c9a93e97d6521` 双重锁定。两者都不读取
-共同父目录或 sibling checkout，也不提供旧来源 fallback。
+服务端 xcss crate 由版本 `=1.0.0` 和 revision `b34b3861e15edd2b1348e7d03b9c9a93e97d6521` 双重锁定。两者都不读取
+共同父目录或 sibling checkout，也不提供旧来源 fallback。浏览器的 xcss-web 源码单独封装在前端 vendor 中，输入散列及 Cargo 包校验值进入 `assets/leptos-build.json`。
 
 ## 10. xcss 共享层与产品层调用树
 
 ```text
-web/src/main.tsx
-├─ @xcss/web/admin-web
-│  ├─ createAdministratorApiClient
-│  ├─ /react: useAdministratorSession
-│  ├─ /vite: createXcssReactViteConfig
-│  └─ /tsconfig.json: strict TypeScript baseline
-├─ @xcss/web/contracts
-│  └─ auth path、AdministratorSession、ErrorEnvelope 的类型与运行时守卫
-├─ @xcss/web/http-client
-│  └─ same-origin、Cookie、CSRF、超时、响应大小、Content-Type 与错误解析
-├─ @xcss/web/design-tokens
-│  └─ token、scoped reset、focus/reduced-motion/forced-colors 基线
-└─ Xcos 产品代码
-   ├─ 摄像头/录像/事件/审计 DTO 的运行时守卫
-   ├─ 页面、WHEP/HLS 播放、交互与中文文案
-   └─ 纸张/墨色/警示色、布局、组件和响应式品牌样式
-
-Rust/Axum
-├─ xcss::contracts 1.0.0 -> Administrator 认证 DTO/路径和跨语言合同
-├─ xcss::error 1.0.0 -> 严格 ErrorEnvelope/ErrorCode
-├─ xcss::schema_identity 1.0.0 -> metadata DDL/列、指纹 framing 与 exact identity
-├─ xcss::server_target 1.0.0 -> 编译期 x86_64-unknown-linux-gnu 门禁
-└─ Xcos 产品代码 -> 私有 SQLite generation、Schema DDL、Cookie、Session、媒体、审计与运维
+web/src/main.js
+├─ @xcss/web 的 token、字体、reset、accessibility 和轮廓绘制适配
+└─ web/pkg/xcos_web.js + xcos_web_bg.wasm
+   └─ web/leptos/src/lib.rs
+      ├─ xcss-web：认证会话、同源 HTTP、CSRF、超时和响应预算
+      ├─ 实例、名称草稿、快照队列和事件流
+      ├─ logs.rs：UTC 日期与独立游标分页
+      ├─ recordings.rs：录像结果身份与播放器生命周期
+      ├─ controls.rs：串行 PTZ 与设备回执
+      └─ media.rs：WHEP、资源清理、重试和 HLS 回退
+         └─ 按需加载 hls.js 浏览器引擎（不承载页面或业务状态）
 ```
 
 共享层拥有管理员密码策略、Session/CSRF 生命周期、Cookie 构造及公共平台表等跨产品机制；
 产品选择自身 ID，组合当前 Schema，并拥有业务 DTO、业务数据库语义、媒体状态机、页面和品牌。
 产品层不得复制共享机制形成第二事实源。
+
+Leptos 构建环境、边界和真实 WASM 验收见 [管理前端维护](leptos-web.md)。

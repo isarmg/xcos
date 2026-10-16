@@ -23,7 +23,7 @@ Client配对/设备快照是xcos-edge-v1，能力字段必须使用supported/uns
 ## 7.3 管理员身份契约
 
 登录 JSON 只接受 `username/password`，Session 只返回 `authenticated/user_id/username/role/csrf_token`。
-xcss 拥有 username 规范化与跨语言守卫；Rust Schema 保存同一 canonical 形状，React/Vite 管理
+xcss 拥有 username 规范化与跨语言守卫；Rust Schema 保存同一 canonical 形状，Leptos/WASM 管理
 Web 消费同一字段。摄像头 username、媒体 JWT/camera identity 不属于该合同，保持独立数据面语义。
 
 ## 7.4 授权码加密封装

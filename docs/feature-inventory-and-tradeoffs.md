@@ -36,8 +36,8 @@ xcss 提供管理员创建、凭据管理与停用能力。摄像头 RTSP/ONVIF 
 
 ### 1.4 删除闭包
 
-删除任一功能时至少检查：Rust 路由与 DTO、SQLite DDL/查询、React 页面与运行时 guard、MediaMTX 配置、
-原生生命周期脚本、配置样例、发行 manifest、正反测试和本套中文文档。隐藏 React 按钮不等于删除功能；
+删除任一功能时至少检查：Rust 路由与 DTO、SQLite DDL/查询、Leptos 页面与响应合同、MediaMTX 配置、
+原生生命周期脚本、配置样例、发行 manifest、正反测试和本套中文文档。隐藏 Leptos 按钮不等于删除功能；
 只删数据库列也不等于删除协议。
 
 ## 2. 总体定位、平台与架构
@@ -50,7 +50,7 @@ xcss 提供管理员创建、凭据管理与停用能力。摄像头 RTSP/ONVIF 
 | SEN-P-004 | MediaMTX 固定 v1.20.0 linux_amd64 与 SHA-256 | `config/mediamtx.lock`、`doctor::verify_companion` | 保障 | 高 | 媒体行为不可复现 | version/platform/digest 同时匹配 |
 | SEN-P-005 | 控制面与媒体面分离；Rust 不代理 RTSP、不转码 | `src/mediamtx.rs`、`config/mediamtx.yml` | 核心 | 高 | 删 companion 无直播录像 | 真实媒体发布播放 |
 | SEN-P-006 | 普通运行只接受当前合同并验证当前状态身份 | `src/main.rs` CLI、`src/sqlite/` | 保障 | 高 | 加入代际 reader 会长期扩大状态和测试矩阵 | server 只有 ROOT 运行、help/version；维护由 xssi 独立辅助程序执行；普通运行拒绝非当前库，不提供历史转换入口 |
-| SEN-P-007 | Server 端 React 19 + TypeScript strict + Vite 8 控制台位于 `web/` | `web/package.json`、`web/src/main.tsx` | 建议保留 | 高 | API 和媒体能力仍在，但没有内置可操作控制台 | typecheck、Vite build、发行静态树验证 |
+| SEN-P-007 | Server 端 Leptos 0.8 + Rust/WASM + Vite 8 控制台位于 `web/` | `web/package.json`、`web/leptos/src/lib.rs` | 建议保留 | 高 | API 和媒体能力仍在，但没有内置可操作控制台 | typecheck、Vite build、发行静态树验证 |
 | SEN-P-008 | Server Rust与单个 @xcss/web 包候选以xcss 1.0.0完整revision、URL及真实tarball integrity受控；基础库使用正式发布的不可变输入，产品验收和发行状态单独记录 | Cargo、一个 `@xcss/web` 依赖、manifest/lock | 保障 | 高 | 平台行为分叉；独立构建通过不代表主分支改动已纳入产品 Release | [本项目 CI](https://github.com/isarmg/xcos/actions)及[正式发行资产](https://github.com/isarmg/xcos/releases)；后续更新仍须复验锁图和发行身份 |
 | SEN-P-009 | `config/` 只存可提交样例和受审 companion 合同；真实 Secret 不进仓库 | `config/xcos.json.example`、`.gitignore` | 开发运维 | 低 | Secret 容易误提交，或部署字段缺少审查入口 | Secret 扫描；样例字段与 parser 对照 |
 | SEN-P-010 | 只由 systemd 管理两个前台进程，同为普通 isarmg-xcos UID；server 不提供进程控制 | 独立 xssi 的服务模板 | 开发运维 | 中 | 重复管理会争抢进程与数据 | unit 静态测试和目标主机启动验收 |
@@ -131,7 +131,7 @@ xcss 提供管理员创建、凭据管理与停用能力。摄像头 RTSP/ONVIF 
 | SEN-O-013 | 周期比较 expected 与 MediaMTX path config/actual publisher/recording 并排队 drift operation | `observe_and_schedule_drift` | 建议保留 | 高 | 外部手改或 companion 重启后持续漂移 | 缺 path、错误 source/record、已一致不重复排队 |
 | SEN-O-014 | operation 查询/人工核对 API 返回持久状态；当前实例 Web 不单独暴露任务页 | `/media/operations/{id}`、`resolve_media_operation` | 建议保留 | 中 | 无法诊断 unknown/dead-letter 的收敛结果 | pending→终态、unknown/resolved、404 |
 | SEN-O-015 | 当前没有通用请求 Idempotency-Key 或客户端 revision CAS；幂等来自 generation/唯一索引和 desired-state 收敛 | `queue_camera_change`、Schema 索引 | 保障 | 高 | 误以为有 header 级幂等会导致调用方不安全重放 | 文档/API 不声明不存在的 header；并发测试按实际 generation 语义 |
-| SEN-O-016 | 媒体状态与观测时效分离：失败/重启保留已知状态，暴露 fresh/stale/unknown、最后成功时间及到期时间 | `background`、`CameraView`、`camera-status.ts` | 保障 | 高 | 清单失败或刷新停止后可能无限显示历史在线；误置离线会歪曲设备事实 | 本地合成清单 503/无效响应、空清单、恢复、过期与启动失效 |
+| SEN-O-016 | 媒体状态与观测时效分离：失败/重启保留已知状态，暴露 fresh/stale/unknown、最后成功时间及到期时间 | `background`、`CameraView`、`web/leptos/src/model.rs` | 保障 | 高 | 清单失败或刷新停止后可能无限显示历史在线；误置离线会歪曲设备事实 | 本地合成清单 503/无效响应、空清单、恢复、过期与启动失效 |
 
 ## 7. MediaMTX、直播、录像和媒体授权
 
@@ -141,8 +141,8 @@ xcss 提供管理员创建、凭据管理与停用能力。摄像头 RTSP/ONVIF 
 | SEN-M-002 | 媒体 JWT 使用 HS256 key，经 HKDF 从 secrets.json中的JWT根密钥 派生 | `issue_media_token`、`media_signing_key` | 保障 | 高 | 直接复用根 Secret 或弱 key 会扩大泄漏影响 | key 派生确定性、错 Secret、算法固定 |
 | SEN-M-003 | 浏览器读取与 Client 发布都使用短时 JWT；严格绑定 protocol、issuer、audience、kind、subject、camera、path、actions、jti、iat/nbf/exp，长期 Client API Token 不进入媒体 URL | `client_publish_url`、`MediaClaims`、`decode_media_token` | 保障 | 高 | Token 可跨产品、跨摄像头、跨用途重放，或媒体链路泄漏扩大到控制面 | 每字段篡改、未知字段、read/publish 隔离、时间窗、jti |
 | SEN-M-004 | MediaMTX HTTP auth callback 有 4 KiB/字段上限并核对 path 与 action | `/internal/v1/media/auth`、`MediaAuthRequest` | 保障 | 高 | callback 可被超大字段耗尽，或 Token 越权到其他 path | 超限、错 path/action、过期、额外字段 |
-| SEN-M-005 | WHEP 浏览器播放器生成 recvonly offer、等待 ICE、设置 answer 并 DELETE resource | `web/src/whep.ts` | 核心 | 高 | 失去低延迟直播或遗留服务端 WHEP Session | 成功连接、12 秒 timeout、close、unmount |
-| SEN-M-006 | WHEP OPTIONS/POST 与资源 DELETE 携带短时 Bearer；请求前验证 ticket 和资源 Location 与应用同源且无 userinfo | `WhepPlayer`、`requireSameOriginMediaUrl`、`whepResourceUrl` | 保障 | 高 | 删除校验可能把 Token 发往意外 origin | 同源相对/绝对地址正例、跨源及 userinfo 拒绝；生产代理路径匹配 |
+| SEN-M-005 | WHEP 浏览器播放器生成 recvonly offer、等待 ICE、设置 answer 并 DELETE resource | `web/leptos/src/media.rs` | 核心 | 高 | 失去低延迟直播或遗留服务端 WHEP Session | 成功连接、12 秒 timeout、close、unmount |
+| SEN-M-006 | WHEP OPTIONS/POST 与资源 DELETE 携带短时 Bearer；请求前验证 ticket 和资源 Location 与应用同源且无 userinfo | `Whep`、`media_url`、`resource_url`（`web/leptos/src/media.rs`） | 保障 | 高 | 删除校验可能把 Token 发往意外 origin | 同源相对/绝对地址正例、跨源及 userinfo 拒绝；生产代理路径匹配 |
 | SEN-M-007 | 录像列表通过 MediaMTX playback API，查询可选 start/end 和指定 camera/profile | `list_recordings`、`MediaMtxClient::recordings` | 建议保留 | 高 | 直播保留，但无法定位历史片段 | 时间范围、main/sub、无录像、上游错误 |
 | SEN-M-008 | 录像播放只允许 mp4/fmp4，单次 0.1 秒至 6 小时 | `play_recording` | 保障 | 中 | 无边界请求可放大上游和带宽资源消耗 | duration 边界、format、非法时间 |
 | SEN-M-009 | 播放代理只转发 Content-Type/Length/Range/Disposition 白名单响应头并流式正文 | `play_recording` | 保障 | 高 | 全量透传上游头可能改变安全策略；整段缓冲会耗内存 | 200/206、Range、上游错误、大正文 |
@@ -165,23 +165,23 @@ xcss 提供管理员创建、凭据管理与停用能力。摄像头 RTSP/ONVIF 
 | SEN-E-008 | 公共operations audit outbox与后台投递任务以事件ID幂等物化审计 | xcss xcss::operations、operation-audit监督任务 | 核心 | 高 | 审计提交/确认同事务，投递失败保留积压并表达降级，不重放业务动作 | 文档、Schema 和代码搜索一致 |
 | SEN-E-009 | system status 汇总数据库、MediaMTX 与已配置服务器录像数；实例总数和在线数由实例列表统一计算 | `/system/status` | 建议保留 | 低 | 控制台缺少一页式运行概况 | companion 不可达、坏 credential、空设备 |
 
-## 9. React/Vite 管理 Web
+## 9. Leptos/WASM 管理 Web
 
 | ID | 当前功能/特性与真实行为 | 实现/代码锚点 | 分类 | 复杂度 | 删除后的确定后果 | 最低验证/边界 |
 |---|---|---|---|---|---|---|
-| SEN-W-001 | 共享 Shell 负责登录、恢复、退出、导航、主题、诊断、通知和安全错误；产品只传身份和业务页面 | createXcssAdminApplication | 保障 | 高 | 产品复制平台状态机 | xcss 10 项浏览器验收及消费者浏览器回归 |
-| SEN-W-002 | 页面只在内存持有 Session/CSRF；Cookie 由浏览器 HttpOnly 管理 | `@xcss/web/admin-web`、`@xcss/web/http-client` | 保障 | 高 | 把 Secret 放 local/sessionStorage 会扩大 XSS 泄漏 | storage 扫描、刷新、401 清理 |
-| SEN-W-003 | 所有业务响应经过 TypeScript runtime guard 检查必需字段/类型，不只依赖静态类型 | `web/src/api.ts` | 保障 | 高 | 异常或漂移 JSON 会在组件深处被错误使用 | 缺失/错误类型、数组成员；产品 guard 当前容忍额外响应字段 |
-| SEN-W-004 | 授权实例列表按名称一次返回全部记录；详情展示 Client 上报摄像机、搜索和卡片直播，并由实例设置管理媒体期望 | `ClientDetails`、`CameraView`、`ClientSettings`、`list_clients` | 核心 | 高 | 失去实例管理旅程或无法核对 Client 上报设备 | 空态、搜索、完整有序实例列表、实例设置与媒体操作；Server 不直接添加/编辑摄像头凭据 |
-| SEN-W-005 | 详情使用共享 Dialog，主码流及鼠标/键盘 PTZ；move/stop 串行，松开、取消、失焦及关闭均触发停止 | CameraDrawer | 可选 | 中 | 缺少精细控制或停止竞态 | pointer cancel、Space/Enter、窗口 blur、关闭清理 |
-| SEN-W-006 | Recordings 页面按摄像头和时间范围查询并播放 | `RecordingsView` | 建议保留 | 中 | API 尚在但普通用户难以回放 | 无摄像头、无结果、播放 URL 清理 |
-| SEN-W-007 | Events 页面筛选未确认、手动刷新和确认事件 | `EventsView`、SSE effect | 建议保留 | 中 | 事件 API 无内置操作界面 | SSE resync、确认、camera name 映射 |
-| SEN-W-008 | 系统页组合媒体状态与业务审计；管理员账号仅由 xcss Shell 右上角人物图标设置；不请求 /users | SystemView、xcss AccountSettings | 建议保留 | 中 | 业务状态缺失或账号入口分散 | 系统状态、业务审计、账号设置、无管理员列表 |
+| SEN-W-001 | 共享 Shell 负责登录、恢复、退出、导航、主题、诊断、通知和安全错误；产品只传身份和业务页面 | `xcss_web::components::AdminShell` | 保障 | 高 | 产品复制平台状态机 | xcss 10 项浏览器验收及消费者浏览器回归 |
+| SEN-W-002 | 页面只在内存持有 Session/CSRF；Cookie 由浏览器 HttpOnly 管理 | `xcss_web::api`、共享 AdminShell | 保障 | 高 | 把 Secret 放 local/sessionStorage 会扩大 XSS 泄漏 | storage 扫描、刷新、401 清理 |
+| SEN-W-003 | 所有业务响应经过 Rust serde 反序列化检查必需字段、空值与枚举，不只依赖静态类型 | `web/leptos/src/model.rs` | 保障 | 高 | 异常或漂移 JSON 会在组件深处被错误使用 | 缺失/错误类型、数组成员；产品响应当前容忍额外字段 |
+| SEN-W-004 | 授权实例列表按名称一次返回全部记录；详情展示 Client 上报摄像机、搜索和卡片直播，并由实例设置管理媒体期望 | `Details`、`CameraView`、`ClientSettings`、`list_clients` | 核心 | 高 | 失去实例管理旅程或无法核对 Client 上报设备 | 空态、搜索、完整有序实例列表、实例设置与媒体操作；Server 不直接添加/编辑摄像头凭据 |
+| SEN-W-005 | 详情使用原生 HTML Dialog，主码流及鼠标/键盘 PTZ；move/stop 串行，松开、取消、失焦及关闭均触发停止 | CameraDrawer | 可选 | 中 | 缺少精细控制或停止竞态 | pointer cancel、Space/Enter、窗口 blur、关闭清理 |
+| SEN-W-006 | Recordings 页面按摄像头和时间范围查询并播放 | `Recordings`（`web/leptos/src/recordings.rs`） | 建议保留 | 中 | API 尚在但普通用户难以回放 | 无摄像头、无结果、播放 URL 清理 |
+| SEN-W-007 | Events 页面筛选未确认、手动刷新和确认事件 | `Logs`、SSE effect | 建议保留 | 中 | 事件 API 无内置操作界面 | SSE resync、确认、camera name 映射 |
+| SEN-W-008 | 系统页组合媒体状态与业务审计；管理员账号仅由 xcss Shell 右上角人物图标设置；不请求 /users | `Logs`、`xcss_web::components::AccountPage` | 建议保留 | 中 | 业务状态缺失或账号入口分散 | 系统状态、业务审计、账号设置、无管理员列表 |
 | SEN-W-009 | xcss design tokens、scoped reset、focus/reduced-motion/forced-colors 基线 | CSS imports、`data-xcss-scope` | 保障 | 中 | 基础交互和可访问性在项目间漂移 | CSS 摘要、键盘焦点、减弱动态、高对比度 |
 | SEN-W-010 | 产品 CSS 仅维护业务布局，颜色/字体/控件来自 xcss；视频黑底属于媒体业务 | web/src/styles.css | 建议保留 | 中 | 私有平台样式导致主题和可访问性漂移 | 无 token 覆盖、无私有字体、移动明暗主题 WCAG AA |
-| SEN-W-011 | WHEP player 在 component cleanup、profile/camera 变化时关闭 peer/resource | `LiveVideo` effect、`WhepPlayer.close` | 保障 | 高 | 切页后仍保留媒体连接和资源 | mount/unmount、快速切换、失败重试 |
-| SEN-W-012 | 精确 Node 26.7.0、React/DOM 19.3.0、TS 7.0.2、Vite 8.3.3 工具链 | `.node-version`、`package.json`、lockfile | 开发运维 | 中 | CI/开发/发行 bundle 不可复现 | clean `npm ci`、engine、lock 来源、typecheck |
-| SEN-W-013 | `build` 强制先执行 `check:xcss`，再 strict typecheck 与 Vite build | `package.json`、`web/tests/design-xcss.test.mjs` | 开发运维 | 中 | 共享依赖或 CSS 漂移时仍可能生成表面可用 bundle | 故意改版本/import/scope 后 build 在 bundling 前失败 |
+| SEN-W-011 | WHEP player 在 component cleanup、profile/camera 变化时关闭 peer/resource | `Player` cleanup、`Whep::close` | 保障 | 高 | 切页后仍保留媒体连接和资源 | mount/unmount、快速切换、失败重试 |
+| SEN-W-012 | 精确 Node 26.7.0、Rust 1.99.0、Leptos 0.8.19、wasm-bindgen 0.2.129、Vite 8.3.3 工具链 | `.node-version`、`package.json`、lockfile | 开发运维 | 中 | CI/开发/发行 bundle 不可复现 | clean `npm ci`、engine、lock 来源、typecheck |
+| SEN-W-013 | `build` 强制先执行 `check:xcss`，再 Rust/WASM 编译与 Vite build | `package.json`、`web/tests/design-xcss.test.mjs` | 开发运维 | 中 | 共享依赖或 CSS 漂移时仍可能生成表面可用 bundle | 故意改版本/import/scope 后 build 在 bundling 前失败 |
 | SEN-W-014 | 发行内嵌全部 Web；只附带 `share/web-assets.json`，不需要运行时 npm/CDN | Vite output、`scripts/package-release.sh`、release manifest | 保障 | 高 | 运行时网络依赖会破坏离线部署和制品身份 | 断网加载、资源引用、额外文件/篡改拒绝 |
 
 ## 10. SQLite、锁、check、发行与供应链
@@ -219,7 +219,7 @@ xcss 提供管理员创建、凭据管理与停用能力。摄像头 RTSP/ONVIF 
 | SEN-Q-004 | 事件 broadcast 容量固定 256，lag 通过 resync 协议显式暴露 | `broadcast::channel(256)` | 保障 | 中 | 无界内存或静默丢实时通知 | 超 256 事件、慢消费者、SQLite 回查 |
 | SEN-Q-005 | 录像容量和保留由 MediaMTX `recordMaxPartSize`、segment 和 deleteAfter 约束 | `config/mediamtx.yml` | 保障 | 中 | 单文件/总保留失控可能填满磁盘 | 文件增长、168h 清理、磁盘/inode 监控；应用当前不建录像 inventory 表 |
 | SEN-Q-006 | HTTP JSON、login、Client 快照、媒体 auth 字段和 playback duration 都有显式上限 | routes/config/models | 保障 | 高 | 外部输入可无界消耗内存、CPU、连接或上游带宽 | 每个上限的边界和恢复测试 |
-| SEN-Q-007 | SQLite 是事件与 operation 的持久事实源；SSE、React state 和日志只是投影 | Schema、routes、Web effects | 保障 | 高 | 重启或断线后页面内存会被误当作最终事实 | 重连全量读取、进程重启、SSE lag |
+| SEN-Q-007 | SQLite 是事件与 operation 的持久事实源；SSE、Leptos signals 和日志只是投影 | Schema、routes、Web effects | 保障 | 高 | 重启或断线后页面内存会被误当作最终事实 | 重连全量读取、进程重启、SSE lag |
 
 ## 12. 明确边界与取舍
 

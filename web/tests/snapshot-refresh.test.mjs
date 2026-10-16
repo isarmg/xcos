@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { createSnapshotRefresh } from "../src/snapshot-refresh.ts";
+import { createSnapshotRefresh } from "./fixtures/legacy/snapshot-refresh.ts";
 
 function deferred() {
   let resolve;

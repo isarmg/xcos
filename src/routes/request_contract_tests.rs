@@ -2055,3 +2055,170 @@ async fn established_event_stream_stops_after_session_logout_or_expiry() {
         pool.close().await;
     }
 }
+
+#[tokio::test]
+async fn router_serves_precompressed_wasm_with_variant_cache_and_head_contracts() {
+    use axum::http::{header, Method, Request};
+    use tower::ServiceExt;
+    let directory = tempfile::tempdir().unwrap();
+    let pool = crate::sqlite::initialize_test_pool(&format!(
+        "sqlite://{}",
+        directory.path().join("wasm-assets.sqlite3").display()
+    ))
+    .await
+    .unwrap();
+    crate::static_assets::embedded_contract_sha256().unwrap();
+    let runtime =
+        xcss::server_runtime::ServerRuntime::builder(xcss::server_runtime::ProductDescriptor {
+            id: "xcos".into(),
+            version: env!("CARGO_PKG_VERSION").into(),
+            common_revision: env!("XCSS_REVISION").into(),
+            profile: "server-control-plane".into(),
+            capabilities: Vec::new(),
+        })
+        .build()
+        .await
+        .unwrap();
+    let app = router(test_state(pool.clone()), runtime.handle()).unwrap();
+    let page = app
+        .clone()
+        .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(page.status(), StatusCode::OK);
+    let html = axum::body::to_bytes(page.into_body(), 64 * 1024)
+        .await
+        .unwrap();
+    let html = std::str::from_utf8(&html).unwrap();
+    let path = html
+        .split("href=\"")
+        .skip(1)
+        .filter_map(|part| part.split('"').next())
+        .find(|path| path.ends_with(".wasm"))
+        .expect("the actual HTML must preload the browser WASM");
+    let raw = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(path)
+                .header(header::ACCEPT_ENCODING, "identity")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(raw.status(), StatusCode::OK);
+    assert_eq!(raw.headers()[header::CONTENT_TYPE], "application/wasm");
+    assert_eq!(raw.headers()[header::VARY], "Accept-Encoding");
+    assert!(!raw.headers().contains_key(header::CONTENT_ENCODING));
+    let raw_etag = raw.headers()[header::ETAG].clone();
+    let raw_bytes = axum::body::to_bytes(raw.into_body(), 4 * 1024 * 1024)
+        .await
+        .unwrap();
+    assert!(raw_bytes.starts_with(b"\0asm"));
+    let gzip = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(path)
+                .header(header::ACCEPT_ENCODING, "gzip")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(gzip.status(), StatusCode::OK);
+    assert_eq!(gzip.headers()[header::CONTENT_TYPE], "application/wasm");
+    assert_eq!(gzip.headers()[header::CONTENT_ENCODING], "gzip");
+    assert_eq!(gzip.headers()[header::VARY], "Accept-Encoding");
+    let gzip_etag = gzip.headers()[header::ETAG].clone();
+    assert_ne!(gzip_etag, raw_etag);
+    let gzip_length = gzip.headers()[header::CONTENT_LENGTH].clone();
+    let gzip_bytes = axum::body::to_bytes(gzip.into_body(), 4 * 1024 * 1024)
+        .await
+        .unwrap();
+    assert!(gzip_bytes.starts_with(&[0x1f, 0x8b]));
+    assert!(gzip_bytes.len() < raw_bytes.len());
+    for method in [Method::GET, Method::HEAD] {
+        let cached = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(method.clone())
+                    .uri(path)
+                    .header(header::ACCEPT_ENCODING, "gzip")
+                    .header(header::IF_NONE_MATCH, gzip_etag.clone())
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(cached.status(), StatusCode::NOT_MODIFIED);
+        assert_eq!(cached.headers()[header::ETAG], gzip_etag);
+        assert_eq!(cached.headers()[header::CONTENT_ENCODING], "gzip");
+        assert_eq!(cached.headers()[header::VARY], "Accept-Encoding");
+        assert!(axum::body::to_bytes(cached.into_body(), 16)
+            .await
+            .unwrap()
+            .is_empty());
+    }
+    let head = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::HEAD)
+                .uri(path)
+                .header(header::ACCEPT_ENCODING, "gzip")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(head.status(), StatusCode::OK);
+    assert_eq!(head.headers()[header::CONTENT_LENGTH], gzip_length);
+    assert_eq!(head.headers()[header::ETAG], gzip_etag);
+    assert_eq!(head.headers()[header::CONTENT_ENCODING], "gzip");
+    assert!(axum::body::to_bytes(head.into_body(), 16)
+        .await
+        .unwrap()
+        .is_empty());
+    let excluded = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(path)
+                .header(header::ACCEPT_ENCODING, "*;q=1, gzip;q=0")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(excluded.headers()[header::ETAG], raw_etag);
+    assert!(!excluded.headers().contains_key(header::CONTENT_ENCODING));
+    let mismatch = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(path)
+                .header(header::ACCEPT_ENCODING, "gzip")
+                .header(header::IF_NONE_MATCH, raw_etag)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(mismatch.status(), StatusCode::OK);
+    let missing = app
+        .oneshot(
+            Request::builder()
+                .uri("/assets/missing.wasm")
+                .header(header::ACCEPT_ENCODING, "gzip")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(missing.status(), StatusCode::NOT_FOUND);
+    assert!(!missing.headers().contains_key(header::CONTENT_ENCODING));
+    pool.close().await;
+}

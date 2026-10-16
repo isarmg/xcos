@@ -6,12 +6,12 @@ import { fileURLToPath } from "node:url";
 import { transformWithOxc } from "vite";
 
 // Execute the original player with in-memory browser boundaries, not a browser.
-const entry = new URL("../src/whep.ts", import.meta.url);
+const entry = new URL("./fixtures/legacy/whep.ts", import.meta.url);
 const { code } = await transformWithOxc(await readFile(entry, "utf8"), fileURLToPath(entry));
 const hooks = registerHooks({
   resolve(specifier, context, next) {
     if (context.parentURL === entry.href && specifier === "./media-url") {
-      return { url: new URL("../src/media-url.ts", import.meta.url).href, shortCircuit: true };
+      return { url: new URL("./fixtures/legacy/media-url.ts", import.meta.url).href, shortCircuit: true };
     }
     return next(specifier, context);
   },

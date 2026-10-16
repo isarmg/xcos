@@ -4,7 +4,7 @@ import { MAX_RESPONSE_BYTES } from "@xcss/web/http-client";
 
 import { isCameraObservation, type CameraObservation } from "./camera-status";
 
-import protocolContract from "./protocol-contract.json";
+import protocolContract from "../../../src/protocol-contract.json";
 
 const LOGIN_SUFFIX = "/auth/login";
 if (!ADMIN_AUTH_PATHS.login.endsWith(LOGIN_SUFFIX)) {

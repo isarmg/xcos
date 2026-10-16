@@ -1,0 +1,64 @@
+name: Dependency audit
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - Cargo.toml
+      - Cargo.lock
+      - web/leptos/Cargo.toml
+      - web/leptos/Cargo.lock
+      - web/leptos/vendor/xcss-web/**
+      - web/package.json
+      - web/package-lock.json
+      - .github/workflows/dependency-audit.yml
+  pull_request:
+    paths:
+      - Cargo.toml
+      - Cargo.lock
+      - web/leptos/Cargo.toml
+      - web/leptos/Cargo.lock
+      - web/leptos/vendor/xcss-web/**
+      - web/package.json
+      - web/package-lock.json
+      - .github/workflows/dependency-audit.yml
+  schedule:
+    - cron: '23 7 * * 2'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: xcos-dependency-audit-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out the source without credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install the fixed Rust audit tool
+        run: |
+          rustup toolchain install 1.99.0 --profile minimal
+          cargo +1.99.0 install cargo-audit --version 0.22.2 --locked
+          test "$(cargo audit --version)" = 'cargo-audit-audit 0.22.2'
+      - name: Audit both locked Rust dependency graphs
+        run: |
+          cargo +1.99.0 fetch --locked
+          cargo audit --deny yanked
+          cargo +1.99.0 fetch --manifest-path web/leptos/Cargo.toml --locked
+          cargo audit --file web/leptos/Cargo.lock --deny yanked
+      - name: Install pinned Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+      - name: Audit the locked static-resource and test tools
+        run: |
+          npm ci --prefix web --ignore-scripts --no-audit --no-fund
+          npm audit --prefix web --audit-level=high
