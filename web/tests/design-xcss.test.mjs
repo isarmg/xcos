@@ -21,7 +21,11 @@ assert.match(nodeVersion, /^26\.7\.0\n?$/);
 assert.equal(manifest.devDependencies.react, undefined);
 assert.equal(manifest.devDependencies["react-dom"], undefined);
 assert.equal(manifest.devDependencies["@vitejs/plugin-react"], undefined);
-assert.equal(manifest.devDependencies.vite, "8.3.3");
+for (const dependency of ["vite", "typescript", "@types/node"]) {
+  assert.equal(manifest.devDependencies[dependency], undefined);
+}
+assert.equal(manifest.scripts["test:unit"], "npm run test:rust");
+assert.match(manifest.scripts["test:browser"], /xcss-web-concurrency\.mjs/);
 assert.match(manifest.scripts.build, /web-build\/Cargo\.toml -- build/);
 assert.match(manifest.scripts.typecheck, /web-build\/Cargo\.toml -- check/);
 for (const dependency of xcssPackages) {

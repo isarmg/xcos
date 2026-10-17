@@ -1,5 +1,4 @@
-// Exercises the compiled Rust player. The archived React harness is only a
-// historical regression reference; this suite runs the real WASM application.
+// Exercises the compiled Rust player through actual browser DOM and network boundaries.
 import assert from 'node:assert/strict';
 import { chromium, firefox, expect } from '@playwright/test';
 import { preview } from '../../tools/web-build/test-preview.mjs';
@@ -25,6 +24,15 @@ try {
       page.on('request', request => { if (new URL(request.url()).pathname.endsWith('.wasm')) wasm.push(request.url()); });
       await page.addInitScript(() => {
         window.mediaPeers = [];
+        const nativeFetch = window.fetch.bind(window);
+        window.fetch = async (input, options = {}) => {
+          const response = await nativeFetch(input, options);
+          if (options.method === 'POST' && window.holdWhepResponse) {
+            window.holdWhepResponse = false;
+            await new Promise(resolve => { window.releaseWhepResponse = resolve; });
+          }
+          return response;
+        };
         // The peer fixture supplies signaling only, so it cannot produce video
         // frames to settle the native playback promise. Model that browser
         // boundary while keeping all Rust transport/state assertions intact.
@@ -32,12 +40,12 @@ try {
         const NativeSource = window.EventSource;
         window.EventSource = class extends NativeSource { constructor(...args) { super(...args); window.mediaSource = this; } };
         window.RTCPeerConnection = class {
-          constructor(configuration) { this.configuration = configuration; this.iceGatheringState = 'complete'; this.connectionState = 'connected'; this.localDescription = null; this.transceivers = []; this.closed = false; window.mediaPeers.push(this); }
+          constructor(configuration) { this.configuration = configuration; this.iceGatheringState = 'complete'; this.connectionState = 'connected'; this.localDescription = null; this.transceivers = []; this.closed = false; this.closeCount = 0; this.stream = new MediaStream(); this.holdOffer = window.holdWhepOffer; window.holdWhepOffer = false; window.mediaPeers.push(this); }
           addTransceiver(kind, options) { this.transceivers.push({ kind, options }); return {}; }
-          createOffer() { return Promise.resolve({ type: 'offer', sdp: 'fixture-offer' }); }
+          async createOffer() { if (this.holdOffer) await new Promise(resolve => { this.releaseOffer = resolve; }); return { type: 'offer', sdp: 'fixture-offer' }; }
           setLocalDescription(value) { this.localDescription = value; return Promise.resolve(); }
-          setRemoteDescription(value) { this.remoteDescription = value; return Promise.resolve(); }
-          close() { this.closed = true; this.connectionState = 'closed'; }
+          setRemoteDescription(value) { this.remoteDescription = value; this.ontrack?.({ streams: [this.stream] }); return Promise.resolve(); }
+          close() { this.closeCount += 1; this.closed = true; this.connectionState = 'closed'; }
         };
       });
       await page.route('**/*', async route => {
@@ -61,7 +69,7 @@ try {
           if (request.method() === 'POST') {
             assert.equal(request.headers()['content-type'], 'application/sdp');
             assert.equal(request.postData(), 'fixture-offer');
-            return mode === 'hls' ? route.fulfill({ status: 503 }) : route.fulfill({ status: 201, contentType: 'application/sdp', headers: { Location: '/cam/whep/session' }, body: 'fixture-answer' });
+            return mode === 'hls' ? route.fulfill({ status: 503 }) : route.fulfill({ status: 201, contentType: 'application/sdp', headers: { Location: `/cam/whep/session-${media.filter(value => value.method === 'POST').length}` }, body: 'fixture-answer' });
           }
           if (path.endsWith('.m3u8')) return route.fulfill({ contentType: 'application/vnd.apple.mpegurl', body: '#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:1\n#EXT-X-MEDIA-SEQUENCE:0\n#EXTINF:1,\nsegment.ts\n#EXT-X-ENDLIST\n' });
           return route.fulfill({ status: 204 });
@@ -79,8 +87,37 @@ try {
       assert.equal(peer.configuration.iceServers[1].username, 'a,b');
       assert.equal(peer.answer.sdp, 'fixture-answer');
       await page.getByRole('button', { name: '实例列表', exact: true }).click();
-      await expect.poll(() => media.some(value => value.method === 'DELETE' && value.path === '/media-webrtc/cam/whep/session')).toBe(true);
-      assert.equal(await page.evaluate(() => window.mediaPeers[0].closed), true);
+      await expect.poll(() => media.some(value => value.method === 'DELETE' && value.path === '/media-webrtc/cam/whep/session-1')).toBe(true);
+      assert.equal(await page.evaluate(() => window.mediaPeers[0].closeCount), 1);
+      assert.equal(media.filter(value => value.method === 'DELETE' && value.path.endsWith('/session-1')).length, 1);
+
+      await page.evaluate(() => { window.holdWhepOffer = true; });
+      const offerPeer = await page.evaluate(() => window.mediaPeers.length);
+      await page.getByRole('button', { name: '详细信息', exact: true }).click();
+      await expect.poll(() => page.evaluate(index => typeof window.mediaPeers[index]?.releaseOffer, offerPeer)).toBe('function');
+      await page.getByRole('button', { name: '实例列表', exact: true }).click();
+      await page.getByRole('button', { name: '详细信息', exact: true }).click();
+      await expect.poll(() => page.evaluate(() => document.querySelector('.video-shell video')?.srcObject === window.mediaPeers.at(-1).stream)).toBe(true);
+      await page.evaluate(index => window.mediaPeers[index].releaseOffer(), offerPeer);
+      await expect.poll(() => page.evaluate(index => window.mediaPeers[index].closeCount, offerPeer)).toBe(1);
+      assert.equal(await page.evaluate(() => document.querySelector('.video-shell video').srcObject === window.mediaPeers.at(-1).stream), true, 'a late cancelled offer cannot detach the replacement video');
+      await page.getByRole('button', { name: '实例列表', exact: true }).click();
+
+      await page.evaluate(() => { window.holdWhepResponse = true; });
+      const latePeer = await page.evaluate(() => window.mediaPeers.length);
+      await page.getByRole('button', { name: '详细信息', exact: true }).click();
+      await expect.poll(() => page.evaluate(() => typeof window.releaseWhepResponse)).toBe('function');
+      const lateResource = `/media-webrtc/cam/whep/session-${media.filter(value => value.method === 'POST').length}`;
+      await page.getByRole('button', { name: '实例列表', exact: true }).click();
+      await page.getByRole('button', { name: '详细信息', exact: true }).click();
+      await expect.poll(() => page.evaluate(() => document.querySelector('.video-shell video')?.srcObject === window.mediaPeers.at(-1).stream)).toBe(true);
+      await page.evaluate(() => window.releaseWhepResponse());
+      await expect.poll(() => media.filter(value => value.method === 'DELETE' && value.path === lateResource).length).toBe(1);
+      assert.equal(await page.evaluate(index => window.mediaPeers[index].closeCount, latePeer), 1);
+      assert.equal(await page.evaluate(index => window.mediaPeers[index].ontrack == null, latePeer), true, 'closed peers release their track callback');
+      assert.equal(await page.evaluate(() => document.querySelector('.video-shell video').srcObject === window.mediaPeers.at(-1).stream), true, 'late resource cleanup cannot detach the replacement video');
+      await page.getByRole('button', { name: '实例列表', exact: true }).click();
+      assert.equal(media.filter(value => value.method === 'DELETE' && value.path === lateResource).length, 1, 'repeated cleanup must not repeat DELETE');
 
       mode = 'hls';
       const ticketsBeforeHls = tickets;

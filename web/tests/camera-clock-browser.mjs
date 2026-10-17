@@ -25,7 +25,14 @@ try {
             Date.now = () => realNow() + window.__xcosClockOffsetMs;
           }, initialOffsetMs);
           const page = await context.newPage();
+          let remainingMs = 60_000;
           const errors = [];
+          await page.addInitScript(() => {
+            const NativeSource = window.EventSource;
+            window.EventSource = class extends NativeSource {
+              constructor(...args) { super(...args); window.clockSource = this; }
+            };
+          });
           page.on("pageerror", error => errors.push(error.message));
           await page.route("**/api/v1/**", route => {
             const path = new URL(route.request().url()).pathname;
@@ -38,8 +45,8 @@ try {
               adapter_kind: "rtsp", manufacturer: null, model: null, firmware_version: null, serial_number: null,
               capabilities, streams: [{ profile: "main", video_codec: "h264", audio_codec: null, width: 1280, height: 720, frame_rate: 30 }],
               health_message: null, device_status: "online", storage_mode: "server", enabled: true, record_enabled: true, status: "online",
-              observation_status: "fresh", last_observed_at: at, observation_expires_at: new Date(now + 60_000).toISOString(),
-              observation_remaining_ms: 60_000, last_seen_at: at, created_at: at, updated_at: at,
+              observation_status: "fresh", last_observed_at: at, observation_expires_at: new Date(now + Math.max(remainingMs, 1)).toISOString(),
+              observation_remaining_ms: remainingMs, last_seen_at: at, created_at: at, updated_at: at,
             }] });
             // Stop event reconnects: the regression exercises the existing camera
             // snapshot across wall-clock changes rather than replacing it via SSE.
@@ -62,6 +69,22 @@ try {
             await expect(page.getByRole("region", { name: "摄像机状态", exact: true }).locator(".camera-status")).toHaveText("在线");
             await expect(page.locator(".camera-card .camera-status")).toHaveText("在线");
             await page.getByRole("button", { name: "实例列表", exact: true }).click();
+            await expect(cameraStatus).toHaveText("在线");
+          }
+          if (initialOffsetMs === 0) {
+            remainingMs = 1_500;
+            await page.evaluate(() => window.clockSource.dispatchEvent(new Event("open")));
+            await expect(cameraStatus).toHaveText("在线");
+            await expect(cameraStatus).toHaveText("观测已过期", { timeout: 5_000 });
+            await page.evaluate(() => { window.__xcosClockOffsetMs = -86_400_000; });
+            await expect(cameraStatus).toHaveText("观测已过期");
+            remainingMs = 0;
+            const zeroValidity = page.waitForResponse(response => new URL(response.url()).pathname === "/api/v1/cameras");
+            await page.evaluate(() => window.clockSource.dispatchEvent(new Event("open")));
+            assert.equal((await (await zeroValidity).json())[0].observation_remaining_ms, 0);
+            await expect(cameraStatus).toHaveText("观测已过期");
+            remainingMs = 60_000;
+            await page.evaluate(() => window.clockSource.dispatchEvent(new Event("open")));
             await expect(cameraStatus).toHaveText("在线");
           }
           assert.deepEqual(errors, []);

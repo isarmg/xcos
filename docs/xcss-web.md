@@ -44,7 +44,7 @@ JavaScript 只负责 WASM/CSS 启动、共享轮廓绘制，以及按需加载�
 
 ## 验收与历史基线
 
-原有 React Hook 测试保留为 `tests/fixtures/react-baseline.tsx` 与 `tests/fixtures/legacy/` 历史行为基线，不能用其通过来证明 Rust 实现正确。Rust 单元测试验证 UTC 日期、Unicode 名称、观测期限、响应合同、审计隐藏及 ICE Link 解析；原有管理页面和摄像头时钟浏览器验收直接访问编译产物。
+退役的 TypeScript 对照实现、Hook 模拟器和 Vite 转换依赖已删除；`test:unit` 只运行当前 Rust 单元测试。真实 WASM 浏览器验收保留管理页面、录像/日志与日期合同，并直接验证 WHEP 资源恰好一次清理、迟到请求不覆盖替换流、观测自然到期、快照合并、云台停止串行、状态重试仅执行 GET、名称保存/刷新失败与较新草稿隔离。Node/Playwright 只承担浏览器验证；原始对照可通过 Git 历史查阅。
 
 `tests/xcss-web-media.mjs` 额外检查实际 WASM 加载，并在 Chromium/Firefox 验证 WHEP、接收流方向、ICE 服务器、会话删除、HLS 新票据及异源凭据边界。此信令探针模拟 `RTCPeerConnection` 和播放 Promise，以确定性核对真实 Rust 状态机；本次未连接生产摄像头或生产 MediaMTX。`tests/xcss-web-startup.mjs` 验证默认入口、系统主题变更、手动主题优先，以及存储被拒绝时显式英文登录。CI 的所有 Web 构建任务都安装固定 WASM target 和 CLI；正式发行仍受原有 annotated tag、源码清洁度、完整清单和已安装生命周期验证约束。本次源码迁移不会自动发布或替换运行中的服务。
 
