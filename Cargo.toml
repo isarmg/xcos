@@ -9,7 +9,7 @@ build = "build.rs"
 
 [dependencies]
 schemars = "=1.2.3"
-xcss = { git = "https://github.com/isarmg/xcss.git", rev = "b34b3861e15edd2b1348e7d03b9c9a93e97d6521", version = "=1.0.0", features = ["tracing"] }
+xcss = { git = "https://github.com/isarmg/xcss.git", rev = "6d285cd1ba4707ed2350123d7b50dfeacfb7a4ac", version = "=1.0.0", features = ["tracing"] }
 anyhow = "1"
 async-trait = "0.1"
 async-stream = "0.3"
@@ -47,7 +47,7 @@ schemars = "=1.2.3"
 serde = { version = "1", features = ["derive"] }
 sha2 = "0.11"
 serde_json = "1"
-xcss = { git = "https://github.com/isarmg/xcss.git", rev = "b34b3861e15edd2b1348e7d03b9c9a93e97d6521", version = "=1.0.0" }
+xcss = { git = "https://github.com/isarmg/xcss.git", rev = "6d285cd1ba4707ed2350123d7b50dfeacfb7a4ac", version = "=1.0.0" }
 
 [lints.rust]
 unsafe_code = "forbid"
