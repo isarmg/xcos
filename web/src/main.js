@@ -9,7 +9,7 @@ import "./styles.css";
 import { startServerCorners } from "@xcss/web/admin-ui/server-corners";
 import initialize from "../pkg/xcos_web.js";
 
-// Browser UI, state, protocol handling and authentication run in Rust/Leptos.
+// Browser UI, state, protocol handling and authentication run in Rust/xcss-web.
 // This module only loads Vite-managed CSS/assets and the WASM module.
 startServerCorners(document);
 await initialize();

@@ -41,10 +41,10 @@ for (const snapshot of ["content-blocks.css", "provenance.json", "verify.mjs"]) 
   assert.equal(existsSync(new URL(`../appearance/${snapshot}`, import.meta.url)), false, "xcss CSS must not be copied into the product");
 }
 
-const main = readFileSync(new URL("../leptos/src/lib.rs", import.meta.url), "utf8");
+const main = readFileSync(new URL("../xcss-web/src/lib.rs", import.meta.url), "utf8");
 const bootstrap = readFileSync(new URL("../src/main.js", import.meta.url), "utf8");
-const browserManifest = readFileSync(new URL("../leptos/Cargo.toml", import.meta.url), "utf8");
-assert.match(browserManifest, /leptos = .*csr/);
+const browserManifest = readFileSync(new URL("../xcss-web/Cargo.toml", import.meta.url), "utf8");
+assert.match(browserManifest, /xcss-web = .*csr/);
 assert.match(bootstrap, /pkg\/xcos_web\.js/);
 assert.doesNotMatch(bootstrap, /react|React|createRoot/);
 assert.match(readFileSync(new URL("../index.html", import.meta.url), "utf8"), /src="\/src\/main\.js"/);

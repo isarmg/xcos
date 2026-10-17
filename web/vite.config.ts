@@ -1,13 +1,13 @@
 import { xcssFontLicenses, xssiRuntimeInventory } from "./font-licenses.mjs";
 import { defineConfig } from "vite";
-import { leptosStaticAssets } from "./leptos-assets.mjs";
+import { xcssWebStaticAssets } from "./xcss-web-assets.mjs";
 import { readFileSync } from "node:fs";
 
 export default async () => defineConfig({
-  plugins: [xcssFontLicenses(), ...await xssiRuntimeInventory(), leptosStaticAssets(), {
-    name: "xcos-leptos-asset-budget",
+  plugins: [xcssFontLicenses(), ...await xssiRuntimeInventory(), xcssWebStaticAssets(), {
+    name: "xcos-xcss-web-asset-budget",
     generateBundle(_options, bundle) {
-      this.emitFile({ type: "asset", fileName: "assets/leptos-build.json", source: readFileSync(new URL("./pkg/leptos-build.json", import.meta.url)) });
+      this.emitFile({ type: "asset", fileName: "assets/xcss-web-build.json", source: readFileSync(new URL("./pkg/xcss-web-build.json", import.meta.url)) });
       let total = 0;
       for (const [name, asset] of Object.entries(bundle)) {
         const size = asset.type === "chunk" ? Buffer.byteLength(asset.code) : typeof asset.source === "string" ? Buffer.byteLength(asset.source) : asset.source.byteLength;

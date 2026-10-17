@@ -1,5 +1,5 @@
-#[path = "leptos_assets.rs"]
-mod leptos_assets;
+#[path = "xcss_web_assets.rs"]
+mod xcss_web_assets;
 // xcss-generated inventory and bytes are part of this executable.
 include!(concat!(env!("OUT_DIR"), "/xcss-web-assets.rs"));
 
@@ -15,7 +15,7 @@ pub(crate) async fn serve(
     let response = if let Some(directory) = state.web_directory.as_deref() {
         directory.response(request.uri().path(), request.method(), request.headers())
     } else {
-        leptos_assets::response(
+        xcss_web_assets::response(
             request.uri().path(),
             request.method(),
             request.headers(),

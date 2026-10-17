@@ -186,7 +186,7 @@ try {
         throw new Error(`Unexpected API request ${request.method()} ${path}`);
       });
       await page.goto(`http://127.0.0.1:${address.port}/#instances`);
-      await expect(page.locator("html")).toHaveAttribute("data-xcss-runtime", "leptos", { timeout: 30_000 });
+      await expect(page.locator("html")).toHaveAttribute("data-xcss-runtime", "xcss-web", { timeout: 30_000 });
       await expect.poll(() => wasmLoads.length).toBe(1);
       const instanceTable = page.getByRole("table", { name: "摄像机实例列表" });
       const statistics = page.getByRole("table", { name: "实例统计" });

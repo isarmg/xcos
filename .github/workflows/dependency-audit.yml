@@ -6,9 +6,9 @@ on:
     paths:
       - Cargo.toml
       - Cargo.lock
-      - web/leptos/Cargo.toml
-      - web/leptos/Cargo.lock
-      - web/leptos/vendor/xcss-web/**
+      - web/xcss-web/Cargo.toml
+      - web/xcss-web/Cargo.lock
+      - web/xcss-web/vendor/xcss-web/**
       - web/package.json
       - web/package-lock.json
       - .github/workflows/dependency-audit.yml
@@ -16,9 +16,9 @@ on:
     paths:
       - Cargo.toml
       - Cargo.lock
-      - web/leptos/Cargo.toml
-      - web/leptos/Cargo.lock
-      - web/leptos/vendor/xcss-web/**
+      - web/xcss-web/Cargo.toml
+      - web/xcss-web/Cargo.lock
+      - web/xcss-web/vendor/xcss-web/**
       - web/package.json
       - web/package-lock.json
       - .github/workflows/dependency-audit.yml
@@ -51,8 +51,8 @@ jobs:
         run: |
           cargo +1.99.0 fetch --locked
           cargo audit --deny yanked
-          cargo +1.99.0 fetch --manifest-path web/leptos/Cargo.toml --locked
-          cargo audit --file web/leptos/Cargo.lock --deny yanked
+          cargo +1.99.0 fetch --manifest-path web/xcss-web/Cargo.toml --locked
+          cargo audit --file web/xcss-web/Cargo.lock --deny yanked
       - name: Install pinned Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:

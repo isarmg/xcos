@@ -42,9 +42,9 @@ mod tests {
     fn rust_web_and_mediamtx_share_the_current_protocol_contract() {
         assert_eq!(CONTRACT.media_jwt_issuer, "xcos/1.0.0");
 
-        let web = include_str!("../web/leptos/src/model.rs");
+        let web = include_str!("../web/xcss-web/src/model.rs");
         assert!(web.contains("format!(\"/api/v1{path}\")"));
-        let transport = include_str!("../web/leptos/vendor/xcss-web/src/api.rs");
+        let transport = include_str!("../web/xcss-web/vendor/xcss-web/src/api.rs");
         assert!(transport.contains("path.starts_with(\"/api/v1/\")"));
         assert!(
             web.match_indices("\"/api/").all(|(index, _)| {

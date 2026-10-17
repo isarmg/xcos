@@ -52,7 +52,7 @@ PTZ 排队的 best-effort 产品审计，以及管理员登录的公共事务审
 UI 不能把网络错误自动解释为“操作失败”。
 
 Web 还必须证明设计边界：`web/src/main.js` 从单个 `@xcss/web` 包的 `design-tokens` 子路径导入 token、scoped reset 和
-accessibility；`web/leptos/` 使用独立锁定的共享 Rust 认证与界面支持，`body` 带 `data-xcss-scope`，`styles.css` 只维护业务布局，颜色、字体和控件语义来自公共模块。不要在 `vendor/` 复制共享 CSS，也不要添加 CDN 或运行时网络 fallback。
+accessibility；`web/xcss-web/` 使用独立锁定的共享 Rust 认证与界面支持，`body` 带 `data-xcss-scope`，`styles.css` 只维护业务布局，颜色、字体和控件语义来自公共模块。不要在 `vendor/` 复制共享 CSS，也不要添加 CDN 或运行时网络 fallback。
 
 ## 8.7 变更联动
 

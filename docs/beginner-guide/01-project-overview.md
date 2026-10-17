@@ -41,7 +41,7 @@ credential key 身份。原始key必须独立受保护，不能写入数据库�
 
 ```text
 src/          Rust API、认证、状态、reconciler、release
-web/  Leptos/WASM 控制台
+web/  xcss-web/WASM 控制台
 config/       JSON/环境样例、MediaMTX 配置和固定制品合同
 deploy/       systemd units 与薄 systemctl 封装
 deploy/       MediaMTX 生命周期和主机部署资产

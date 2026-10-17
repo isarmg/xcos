@@ -12,6 +12,6 @@
 *.log
 __pycache__/
 /web/pkg
-/web/leptos/target
+/web/xcss-web/target
 
 /tools/web-build/target/
