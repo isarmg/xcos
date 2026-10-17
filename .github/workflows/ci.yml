@@ -86,10 +86,10 @@ jobs:
         run: |
           node --version
           npm --version
-          python3 scripts/test-xcss-web-build.py
           npm ci --prefix web
           npm run check:xcss --prefix web
           cargo +1.99.0 fmt --manifest-path tools/web-build/Cargo.toml -- --check
+          cargo +1.99.0 test --locked --manifest-path tools/web-build/Cargo.toml
           cargo +1.99.0 clippy --manifest-path tools/web-build/Cargo.toml --locked --all-targets -- -D warnings
           cargo +1.99.0 fmt --manifest-path web/xcss-web/Cargo.toml -- --check
           CARGO_TARGET_DIR=target/xcss-web cargo +1.99.0 clippy --manifest-path web/xcss-web/Cargo.toml --locked --target wasm32-unknown-unknown --all-targets --no-deps -- -D warnings
@@ -283,7 +283,7 @@ jobs:
             ~/.cargo/git/db
             target
           # No fallback keys. Only a successful main push saves this cache.
-          key: xcos-installed-release-v1-${{ runner.os }}-${{ runner.arch }}-rust-1.99.0-${{ env.SERVER_TARGET }}-${{ steps.release_environment.outputs.fingerprint }}-${{ hashFiles('Cargo.lock', 'tools/web-build/Cargo.lock', 'tools/web-build/src/**', 'web/rust-web.toml', 'web/vendor/**', 'web/xcss-web/vendor/**', 'web/xcss-web/Cargo.lock', 'scripts/build-xcss-web.py', '**/Cargo.toml', '**/build.rs', '.cargo/**', 'rust-toolchain.toml', 'config/xssi.lock', 'config/mediamtx.lock', 'web/package-lock.json', 'xcss-web-build.json', '.github/workflows/ci.yml') }}
+          key: xcos-installed-release-v1-${{ runner.os }}-${{ runner.arch }}-rust-1.99.0-${{ env.SERVER_TARGET }}-${{ steps.release_environment.outputs.fingerprint }}-${{ hashFiles('Cargo.lock', 'tools/web-build/Cargo.lock', 'tools/web-build/src/**', 'web/rust-web.toml', 'web/vendor/**', 'web/xcss-web/vendor/**', 'web/xcss-web/Cargo.lock', '**/Cargo.toml', '**/build.rs', '.cargo/**', 'rust-toolchain.toml', 'config/xssi.lock', 'config/mediamtx.lock', 'web/package-lock.json', 'xcss-web-build.json', '.github/workflows/ci.yml') }}
       - name: Discard cached first-party candidate products
         run: |
           cargo clean --package xcos --release --target "$SERVER_TARGET"

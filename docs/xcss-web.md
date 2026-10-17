@@ -23,7 +23,7 @@ npm run build --prefix web
 npm run test:browser --prefix web
 ```
 
-`scripts/build-xcss-web.py` 使用独立的前端 Cargo workspace 与 `web/xcss-web/Cargo.lock`。构建先在临时目录生成 wasm-bindgen 输出，验证源码在编译期间没有变化，再更新 `web/pkg/`；Vite 将 WASM、样式和字体纳入静态资源树。正式构建默认使用 release，开发构建可显式传入 `--debug`。`CARGO_TARGET_DIR`、`WASM_BINDGEN` 可指向独立缓存和已安装的指定版本工具。
+`tools/web-build` Rust CLI 使用独立的前端 Cargo workspace 与 `web/xcss-web/Cargo.lock`；退役的 Python 构建器及其专属测试已移除。构建先在临时目录生成 wasm-bindgen 输出，验证源码在编译期间没有变化，再更新 `web/pkg/`；Rust 资源构建器将 WASM、样式和字体纳入静态资源树。正式构建默认使用 release，开发构建可显式传入 `--debug`。`CARGO_TARGET_DIR`、`WASM_BINDGEN` 可指向独立缓存和已安装的指定版本工具。
 
 发行资源 `assets/xcss-web-build.json` 记录浏览器源码、Cargo.lock、共享源码、包校验值及生成文件 SHA-256。字体许可、xssi 前端清单和服务端发行摘要仍由原有发布流程处理。`web/pkg/` 为可重新生成的输出，不应提交。前端是独立 Cargo workspace；CI 另外执行它的 `cargo fmt` 和 `cargo clippy -D warnings`，服务端 workspace 的 `--all` 不会覆盖此目录。
 
