@@ -142,38 +142,32 @@ Administrator Browser Session
 
 普通运行不扫描其他代路径、不解析非当前Schema/密文，也不通过fallback修补数据。实例和 runtime 锁核对物理身份，systemd 管理 companion，错误输入拒绝运行。
 
-## 9. Web 构建与 xcss 1.0.0 流程
+## 9. Rust Web 构建与验证流程
 
 ```text
-package.json + package-lock.json 精确锁定 xcss 1.0.0 和工具链
-  -> npm ci
-  -> check:xcss
-       ├─ 校验 Node/Vite、Rust/WASM 和 wasm-bindgen 精确版本
-       ├─ 校验一个 @xcss/web 包及 lock 来源
-       ├─ 校验共享 Rust 认证外壳、响应合同和 data-xcss-scope
-       └─ 校验 token/reset/accessibility 内容摘要和品牌语义映射
+web/vendor/*/SOURCE.json + web/xcss-web/vendor/xcss-web/SOURCE.json
+  -> 校验公共资源和 CSR 源码来源与逐文件摘要
   -> web/xcss-web/Cargo.lock + cargo wasm32-unknown-unknown 检查与测试
   -> xcss-web-core 0.8.19 release + wasm-bindgen 0.2.129
-  -> Vite 8.3.3 打包 WASM、样式、字体和按需 HLS
+  -> Rust tools/web-build 整理 WASM、样式、字体和按需 HLS
   -> dist/index.html + hashed assets
   -> native build 纳入 release manifest
   -> relocated smoke 验证引用、重定位与篡改拒绝
 ```
 
-开发期命令：
+生产构建无需 npm；Node/Playwright 只用于验收。开发与验证命令：
 
 ```bash
-cd web
-npm ci
-npm run check:xcss
-npm run build
+npm ci --prefix web
+npm run check:xcss --prefix web
+npm run build --prefix web
+npm run test:browser --prefix web
 ```
 
-`build` 已把 `check:xcss` 设为硬前置，因此不能通过直接执行 Vite 跳过共享边界。构建产物完全自包含；
-浏览器运行时不解析 npm 包，也不访问 npm registry、xcss 仓库或远程 CSS。
-构建期单个 @xcss/web 包候选固定xcss `v1.0.0`官方URL和真实归档的lockfile integrity；Rust revision 与 Web 归档固定正式发布输入，跨机器构建按锁文件验证。
-服务端 xcss crate 由版本 `=1.0.0` 和 revision `b34b3861e15edd2b1348e7d03b9c9a93e97d6521` 双重锁定。两者都不读取
-共同父目录或 sibling checkout，也不提供旧来源 fallback。浏览器的 xcss-web 源码单独封装在前端 vendor 中，输入散列及 Cargo 包校验值进入 `assets/xcss-web-build.json`。
+`check:xcss` 检查实际 vendor 资源摘要、当前 Rust 认证外壳、启动入口和设计边界，CI 独立执行该门禁。
+Rust 构建工具校验来源、锁文件及资源预算，不读取 node_modules；浏览器也不访问 npm registry、xcss 仓库或远程 CSS。
+服务端来源以根 Cargo 声明、锁文件与 xcss-product.toml 的完整修订为准；浏览器 CSR 和静态资源分别绑定其 SOURCE.json。
+它们不读取共同父目录或 sibling checkout，也不提供旧来源 fallback。输入散列及 Cargo 包校验值进入 `assets/xcss-web-build.json`。
 
 ## 10. xcss 共享层与产品层调用树
 

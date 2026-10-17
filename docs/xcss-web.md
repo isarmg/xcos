@@ -6,7 +6,7 @@
 
 当前 `main` 已合并 xcss-web CSR 与 Rust 原生构建；直接在主分支构建和验收。下面的首次迁移流程与数字作为历史记录，正式发行和线上部署继续使用产品发布流程。
 
-默认入口 `web/src/main.js` 加载编译后的 Rust/WASM；React 和旧 TypeScript 业务实现仅保存在 `web/tests/fixtures/`，供原有历史行为测试使用，不进入发行资源。
+默认入口 `web/src/main.js` 加载编译后的 Rust/WASM；React 和旧 TypeScript 对照实现已移除，当前回归直接验证实际 WASM。
 
 ## 构建与验证
 

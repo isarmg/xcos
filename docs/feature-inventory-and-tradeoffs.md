@@ -51,7 +51,7 @@ xcss 提供管理员创建、凭据管理与停用能力。摄像头 RTSP/ONVIF 
 | SEN-P-005 | 控制面与媒体面分离；Rust 不代理 RTSP、不转码 | `src/mediamtx.rs`、`config/mediamtx.yml` | 核心 | 高 | 删 companion 无直播录像 | 真实媒体发布播放 |
 | SEN-P-006 | 普通运行只接受当前合同并验证当前状态身份 | `src/main.rs` CLI、`src/sqlite/` | 保障 | 高 | 加入代际 reader 会长期扩大状态和测试矩阵 | server 只有 ROOT 运行、help/version；维护由 xssi 独立辅助程序执行；普通运行拒绝非当前库，不提供历史转换入口 |
 | SEN-P-007 | Server 端 xcss-web 0.8 + Rust/WASM + Vite 8 控制台位于 `web/` | `web/package.json`、`web/xcss-web/src/lib.rs` | 建议保留 | 高 | API 和媒体能力仍在，但没有内置可操作控制台 | typecheck、Vite build、发行静态树验证 |
-| SEN-P-008 | Server Rust与单个 @xcss/web 包候选以xcss 1.0.0完整revision、URL及真实tarball integrity受控；基础库使用正式发布的不可变输入，产品验收和发行状态单独记录 | Cargo、一个 `@xcss/web` 依赖、manifest/lock | 保障 | 高 | 平台行为分叉；独立构建通过不代表主分支改动已纳入产品 Release | [本项目 CI](https://github.com/isarmg/xcos/actions)及[正式发行资产](https://github.com/isarmg/xcos/releases)；后续更新仍须复验锁图和发行身份 |
+| SEN-P-008 | Server Rust以完整revision锁定；公共Web资源和CSR源码以SOURCE.json的来源及逐文件摘要受控，产品验收和发行状态单独记录 | Cargo、vendor来源清单、manifest/lock | 保障 | 高 | 平台行为分叉；独立构建通过不代表主分支改动已纳入产品 Release | [本项目 CI](https://github.com/isarmg/xcos/actions)及[正式发行资产](https://github.com/isarmg/xcos/releases)；后续更新仍须复验锁图和发行身份 |
 | SEN-P-009 | `config/` 只存可提交样例和受审 companion 合同；真实 Secret 不进仓库 | `config/xcos.json.example`、`.gitignore` | 开发运维 | 低 | Secret 容易误提交，或部署字段缺少审查入口 | Secret 扫描；样例字段与 parser 对照 |
 | SEN-P-010 | 只由 systemd 管理两个前台进程，同为普通 isarmg-xcos UID；server 不提供进程控制 | 独立 xssi 的服务模板 | 开发运维 | 中 | 重复管理会争抢进程与数据 | unit 静态测试和目标主机启动验收 |
 

@@ -1,4 +1,5 @@
-import {prepareApplicationFonts, startAfterFonts} from "@xcss/web/web-fonts";
+import { startApplication } from "../xcss-web/vendor/xcss-web/startup.js";
+import { createHash } from "node:crypto";
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 
@@ -9,9 +10,8 @@ assert.deepEqual(manifest.dependencies ?? {}, {});
 const lock = JSON.parse(
   readFileSync(new URL("../package-lock.json", import.meta.url), "utf8"),
 );
-// One exact xcss input version, with tarball integrity and no local links.
-
-const xcssPackages = ["@xcss/web"];
+assert.equal(manifest.devDependencies["@xcss/web"], undefined);
+assert.equal(lock.packages?.["node_modules/@xcss/web"], undefined);
 
 const nodeVersion = readFileSync(
   new URL("../../.node-version", import.meta.url),
@@ -28,18 +28,15 @@ assert.equal(manifest.scripts["test:unit"], "npm run test:rust");
 assert.match(manifest.scripts["test:browser"], /xcss-web-concurrency\.mjs/);
 assert.match(manifest.scripts.build, /web-build\/Cargo\.toml -- build/);
 assert.match(manifest.scripts.typecheck, /web-build\/Cargo\.toml -- check/);
-for (const dependency of xcssPackages) {
-  const expected = "https://github.com/isarmg/xcss/releases/download/v1.0.0/xcss-web-1.0.0.tgz";
-  assert.equal(manifest.devDependencies?.[dependency], expected);
-  assert.equal(lock.packages?.[""]?.devDependencies?.[dependency], expected);
-
-  const locked = lock.packages?.[`node_modules/${dependency}`];
-  assert.equal(locked?.link, undefined);
-  assert.equal(locked?.resolved, expected);
-  assert.equal(locked?.version, "1.0.0");
-  assert.equal(locked?.integrity, "sha512-QR/zmdzyQkLnFzTTp+EHYnOL9XEe5N95XVUasnDlKqdNWw/nVoY4evq083QTxMED/ElRRYeegEItnTxCUcb7TQ==");
+for (const vendor of ["xcss", "hls"]) {
+  const root = new URL(`../vendor/${vendor}/`, import.meta.url);
+  const source = JSON.parse(readFileSync(new URL("SOURCE.json", root), "utf8"));
+  assert.equal(source.format, 1);
+  for (const [file, digest] of Object.entries(source.files)) {
+    assert.equal(createHash("sha256").update(readFileSync(new URL(file, root))).digest("hex"), digest, `${vendor}/${file}`);
+  }
 }
-const adminStyles = readFileSync(new URL("../node_modules/@xcss/web/dist/admin-ui/styles.css", import.meta.url), "utf8");
+const adminStyles = readFileSync(new URL("../vendor/xcss/admin-ui/styles.css", import.meta.url), "utf8");
 assert.match(adminStyles, /@import ["']\.\/content-blocks\.css["']/);
 for (const snapshot of ["content-blocks.css", "provenance.json", "verify.mjs"]) {
   assert.equal(existsSync(new URL(`../appearance/${snapshot}`, import.meta.url)), false, "xcss CSS must not be copied into the product");
@@ -61,5 +58,4 @@ assert.doesNotMatch(main, /AdministratorsPanel|管理员账号|Administrator acc
 assert.doesNotMatch(main, /useAdministratorSession|LoginScreen|UserEditor|ManagedUser|window\.confirm|["']\/users/);
 assert.doesNotMatch(styles, /--xcss-[a-z-]+\s*:|font-family|login-screen|side-rail|toast-stack/);
 
-assert.equal(typeof prepareApplicationFonts, "function");
-assert.equal(typeof startAfterFonts, "function");
+assert.equal(typeof startApplication, "function");

@@ -52,9 +52,9 @@ mod tests {
             }),
             "browser request literals must keep the versioned API prefix"
         );
-        let vite = include_str!("../web/vite.config.ts");
-        assert!(vite.contains("\"/api/v1\": \"http://127.0.0.1:18106\""));
-        assert!(!vite.contains("\"/api\":"));
+        let web_config = include_str!("../web/rust-web.toml");
+        assert!(web_config.contains("\"/api/v1\" = \"http://127.0.0.1:18106\""));
+        assert!(!web_config.contains("\"/api\" ="));
 
         let routes = include_str!("routes/mod.rs");
         assert!(routes.contains(".nest(&CONTRACT.api_prefix, api)"));
