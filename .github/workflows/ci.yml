@@ -155,7 +155,7 @@ jobs:
       - name: Build current Web compilation inputs
         run: |
           npm ci --prefix web
-          cargo +1.99.0 run --quiet --locked --manifest-path tools/web-build/Cargo.toml -- server --product-root . --config "$PWD/xcss-web-build.json" --mode development --web-only
+          cargo +1.99.0 run --quiet --locked --manifest-path tools/web-build/Cargo.toml -- server --product-root . --config xcss-web-build.json --mode development --web-only
       - name: Check formatting
         run: cargo fmt --all -- --check
       - name: Check all targets
@@ -214,7 +214,7 @@ jobs:
       - name: Build embedded Web inputs for deployment tests
         run: |
           npm ci --prefix web
-          cargo +1.99.0 run --quiet --locked --manifest-path tools/web-build/Cargo.toml -- server --product-root . --config "$PWD/xcss-web-build.json" --mode development --web-only
+          cargo +1.99.0 run --quiet --locked --manifest-path tools/web-build/Cargo.toml -- server --product-root . --config xcss-web-build.json --mode development --web-only
       - name: Verify systemd controls and release packaging
         run: ./scripts/check-deployment.sh
 
