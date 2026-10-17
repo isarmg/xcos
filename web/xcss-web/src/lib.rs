@@ -4,6 +4,7 @@ mod logs;
 mod media;
 mod model;
 mod recordings;
+mod resource_path;
 
 use model::*;
 use serde_json::json;

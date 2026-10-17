@@ -38,19 +38,21 @@ pub fn media_url(value: &str, base: &str) -> Result<String, JsValue> {
     }
     Ok(url.href())
 }
-pub fn resource_url(location: &str, request_url: &str, page: &str) -> Result<String, JsValue> {
-    let request = media_url(request_url, page)?;
-    let location = if location.starts_with('/')
-        && !location.starts_with("//")
-        && web_sys::Url::new(&request)?
-            .pathname()
-            .starts_with("/media-webrtc/")
-    {
-        format!("/media-webrtc{location}")
-    } else {
-        location.into()
-    };
-    media_url(&location, &request)
+pub fn resource_url(
+    location: &str,
+    request_url: &str,
+    page: &str,
+    stream_path: &str,
+) -> Result<String, JsValue> {
+    let request = web_sys::Url::new(&media_url(request_url, page)?)?;
+    // Resolve and validate before remapping. Absolute and protocol-relative
+    // foreign URLs must never become local URLs carrying our bearer token.
+    let resource = web_sys::Url::new(&media_url(location, &request.href())?)?;
+    let path =
+        crate::resource_path::resource_path(&resource.pathname(), &request.pathname(), stream_path)
+            .map_err(JsValue::from_str)?;
+    resource.set_pathname(&path);
+    Ok(resource.href())
 }
 type IceServer = (String, Option<String>, Option<String>);
 fn parse_ice_servers(header: &str) -> Vec<IceServer> {
@@ -205,7 +207,12 @@ impl Whep {
             Ok(())
         }
     }
-    async fn start(self: &Rc<Self>, url: &str, lost: Rc<dyn Fn()>) -> Result<(), JsValue> {
+    async fn start(
+        self: &Rc<Self>,
+        url: &str,
+        stream_path: &str,
+        lost: Rc<dyn Fn()>,
+    ) -> Result<(), JsValue> {
         let base = web_sys::window().unwrap().location().href()?;
         let endpoint = media_url(url, &base)?;
         let servers = match fetch_media(
@@ -269,7 +276,8 @@ impl Whep {
         if let Some(location) = response.headers().get("Location")?
             && !location.is_empty()
         {
-            *self.resource.borrow_mut() = Some(resource_url(&location, &endpoint, &base)?);
+            *self.resource.borrow_mut() =
+                Some(resource_url(&location, &endpoint, &base, stream_path)?);
         }
         self.active()?;
         let answer = JsFuture::from(response.text()?)
@@ -421,6 +429,7 @@ impl Player {
             if whep
                 .start(
                     &ticket.whep_url,
+                    &format!("cam_{}_{}", self.camera.replace('-', ""), self.profile),
                     Rc::new(move || {
                         if this.current(g) {
                             this.schedule(attempt + 1)

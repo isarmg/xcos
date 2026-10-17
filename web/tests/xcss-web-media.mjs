@@ -4,6 +4,7 @@ import { chromium, firefox, expect } from '@playwright/test';
 import { preview } from '../../tools/web-build/test-preview.mjs';
 
 const id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+const stream = `cam_${id.replaceAll('-', '')}_main`;
 const at = '2026-10-16T00:00:00Z';
 const session = { authenticated: true, user_id: 'A'.repeat(43), username: 'admin', role: 'admin', csrf_token: 'A'.repeat(43) };
 const client = { id, installation_id: id, name: 'Media fixture', client_version: '1.0.0', authorization_code: 'a'.repeat(36), status: 'online', last_seen_at: at, created_at: at, updated_at: at };
@@ -20,6 +21,7 @@ try {
       const page = await browser.newPage({ locale: 'zh-CN' });
       const errors = [], media = [], foreign = [], wasm = [];
       let tickets = 0, mode = 'whep', cameraVisible = true;
+      let whepPrefix = '/media-webrtc', resourceLocation = null;
       page.on('pageerror', error => errors.push(error.message));
       page.on('request', request => { if (new URL(request.url()).pathname.endsWith('.wasm')) wasm.push(request.url()); });
       await page.addInitScript(() => {
@@ -59,17 +61,17 @@ try {
         if (path.endsWith('/stream-ticket')) {
           tickets += 1;
           const unsafe = mode === 'foreign';
-          return route.fulfill({ json: { profile: 'main', whep_url: unsafe ? 'https://foreign.invalid/whep' : '/media-webrtc/cam/whep', hls_url: unsafe ? 'https://foreign.invalid/index.m3u8' : '/media-hls/cam/index.m3u8', token: `ticket-${tickets}`, expires_at: at } });
+          return route.fulfill({ json: { profile: 'main', whep_url: unsafe ? 'https://foreign.invalid/whep' : `${whepPrefix}/${stream}/whep`, hls_url: unsafe ? 'https://foreign.invalid/index.m3u8' : '/media-hls/cam/index.m3u8', token: `ticket-${tickets}`, expires_at: at } });
         }
         if (path.startsWith('/media-')) {
-          media.push({ path, method: request.method(), token: request.headers().authorization });
+          media.push({ path, search: url.search, method: request.method(), token: request.headers().authorization });
           assert.match(request.headers().authorization ?? '', /^Bearer ticket-\d+$/);
           if (request.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: { Link: '<stun:lan.example>; rel="ice-server", <turn:relay.example>; rel="ice-server"; username="a,b"; credential="Secret"' } });
           if (request.method() === 'DELETE') return route.fulfill({ status: 204 });
           if (request.method() === 'POST') {
             assert.equal(request.headers()['content-type'], 'application/sdp');
             assert.equal(request.postData(), 'fixture-offer');
-            return mode === 'hls' ? route.fulfill({ status: 503 }) : route.fulfill({ status: 201, contentType: 'application/sdp', headers: { Location: `/cam/whep/session-${media.filter(value => value.method === 'POST').length}` }, body: 'fixture-answer' });
+            return mode === 'hls' ? route.fulfill({ status: 503 }) : route.fulfill({ status: 201, contentType: 'application/sdp', headers: { Location: resourceLocation ?? `/${stream}/whep/session-${media.filter(value => value.method === 'POST').length}` }, body: 'fixture-answer' });
           }
           if (path.endsWith('.m3u8')) return route.fulfill({ contentType: 'application/vnd.apple.mpegurl', body: '#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:1\n#EXT-X-MEDIA-SEQUENCE:0\n#EXTINF:1,\nsegment.ts\n#EXT-X-ENDLIST\n' });
           return route.fulfill({ status: 204 });
@@ -87,7 +89,7 @@ try {
       assert.equal(peer.configuration.iceServers[1].username, 'a,b');
       assert.equal(peer.answer.sdp, 'fixture-answer');
       await page.getByRole('button', { name: '实例列表', exact: true }).click();
-      await expect.poll(() => media.some(value => value.method === 'DELETE' && value.path === '/media-webrtc/cam/whep/session-1')).toBe(true);
+      await expect.poll(() => media.some(value => value.method === 'DELETE' && value.path === `/media-webrtc/${stream}/whep/session-1`)).toBe(true);
       assert.equal(await page.evaluate(() => window.mediaPeers[0].closeCount), 1);
       assert.equal(media.filter(value => value.method === 'DELETE' && value.path.endsWith('/session-1')).length, 1);
 
@@ -107,7 +109,7 @@ try {
       const latePeer = await page.evaluate(() => window.mediaPeers.length);
       await page.getByRole('button', { name: '详细信息', exact: true }).click();
       await expect.poll(() => page.evaluate(() => typeof window.releaseWhepResponse)).toBe('function');
-      const lateResource = `/media-webrtc/cam/whep/session-${media.filter(value => value.method === 'POST').length}`;
+      const lateResource = `/media-webrtc/${stream}/whep/session-${media.filter(value => value.method === 'POST').length}`;
       await page.getByRole('button', { name: '实例列表', exact: true }).click();
       await page.getByRole('button', { name: '详细信息', exact: true }).click();
       await expect.poll(() => page.evaluate(() => document.querySelector('.video-shell video')?.srcObject === window.mediaPeers.at(-1).stream)).toBe(true);
@@ -118,6 +120,35 @@ try {
       assert.equal(await page.evaluate(() => document.querySelector('.video-shell video').srcObject === window.mediaPeers.at(-1).stream), true, 'late resource cleanup cannot detach the replacement video');
       await page.getByRole('button', { name: '实例列表', exact: true }).click();
       assert.equal(media.filter(value => value.method === 'DELETE' && value.path === lateResource).length, 1, 'repeated cleanup must not repeat DELETE');
+
+      // The gateway can use any configured same-origin base, and may already
+      // rewrite upstream Location headers. Exercise URL semantics in WASM.
+      for (const [location, expectedPath, expectedSearch] of [
+        [`/${stream}/whep/custom`, `/media-custom/rtc/${stream}/whep/custom`, ''],
+        [`/media-custom/rtc/${stream}/whep/prefixed`, `/media-custom/rtc/${stream}/whep/prefixed`, ''],
+        [`${origin}/${stream}/whep/absolute?keep=1`, `/media-custom/rtc/${stream}/whep/absolute`, '?keep=1'],
+        ['whep/relative?keep=2', `/media-custom/rtc/${stream}/whep/relative`, '?keep=2'],
+        ['?keep=3', `/media-custom/rtc/${stream}/whep`, '?keep=3'],
+      ]) {
+        whepPrefix = '/media-custom/rtc';
+        resourceLocation = location;
+        await page.getByRole('button', { name: '详细信息', exact: true }).click();
+        await expect(page.locator('.video-shell .video-state')).toHaveCount(0);
+        await page.getByRole('button', { name: '实例列表', exact: true }).click();
+        await expect.poll(() => media.some(value => value.method === 'DELETE' && value.path === expectedPath && value.search === expectedSearch)).toBe(true);
+      }
+      // A Location header is untrusted even after same-origin signaling succeeds.
+      for (const location of ['https://foreign.invalid/session', '//foreign.invalid/session', `${origin.replace('://', '://user:password@')}/session`]) {
+        resourceLocation = location;
+        const deletesBefore = media.filter(value => value.method === 'DELETE').length;
+        const ticketsBefore = tickets;
+        await page.getByRole('button', { name: '详细信息', exact: true }).click();
+        await expect.poll(() => tickets).toBeGreaterThan(ticketsBefore + 1);
+        await page.getByRole('button', { name: '实例列表', exact: true }).click();
+        assert.equal(media.filter(value => value.method === 'DELETE').length, deletesBefore);
+      }
+      whepPrefix = '/media-webrtc';
+      resourceLocation = null;
 
       mode = 'hls';
       const ticketsBeforeHls = tickets;
