@@ -152,10 +152,17 @@ try {
 
       mode = 'hls';
       const ticketsBeforeHls = tickets;
+      const mediaBeforeHls = media.length;
+      const fallbackToken = `Bearer ticket-${ticketsBeforeHls + 2}`;
+      // Invalid Location cases above also use HLS. Neither their recorded
+      // manifests nor a late request with an older ticket proves this fallback.
+      const currentManifest = () => media.slice(mediaBeforeHls).find(value =>
+        value.path === '/media-hls/cam/index.m3u8' && value.token === fallbackToken);
       await page.getByRole('button', { name: '详细信息', exact: true }).click();
-      await expect.poll(() => media.some(value => value.path === '/media-hls/cam/index.m3u8')).toBe(true);
+      await expect.poll(() => currentManifest()?.token).toBe(fallbackToken);
       assert.ok(tickets >= ticketsBeforeHls + 2, 'HLS receives a newly issued ticket after WHEP fails');
-      assert.equal(media.findLast(value => value.path === '/media-hls/cam/index.m3u8').token, `Bearer ticket-${ticketsBeforeHls + 2}`);
+      assert.equal(currentManifest().token, fallbackToken);
+      assert.ok(media.slice(mediaBeforeHls).some(value => value.method === 'POST' && value.token === `Bearer ticket-${ticketsBeforeHls + 1}`), 'WHEP used the first ticket before HLS received the second');
       await page.getByRole('button', { name: '实例列表', exact: true }).click();
 
       mode = 'foreign';
