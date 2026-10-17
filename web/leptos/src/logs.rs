@@ -1,4 +1,5 @@
 use crate::{AppState, Confirm, Failure, model::*};
+use leptos::component::{component_props_builder, component_view};
 use leptos::prelude::*;
 use serde_json::{Value, json};
 use wasm_bindgen_futures::spawn_local;
@@ -207,25 +208,962 @@ pub fn Logs() -> impl IntoView {
             }
         });
     });
-    view! {<section class="xcss-content-stack" aria-label=t("日志","Logs")><section class="xcss-content-panel xcss-content-stack" aria-label=t("日志筛选","Log filters")><p>{t("实例：全部实例","Instance: All instances")}</p><div class="xcss-log-date-controls"><label for="xcos-log-date-start-year">{t("日志日期范围（UTC）","Log date range (UTC)")}</label><div class="xcss-actions"><button class="xcss-button" disabled=move||state.range.get().is_none()||!state.draft_valid.get()||state.busy.get()&&!state.loaded.get() on:click=move |_|state.load(false)>{t("刷新日志","Refresh logs")}</button></div><DateRange range=state.range valid=state.draft_valid apply=Callback::new(move|range|{state.range.set(Some(range));state.cursors.set([None,None,None]);state.history.set([vec![],vec![],vec![]]);state.load(false);})/></div></section>
-    <Show when=move||state.error.get().is_some()><div class="xcss-error" role="alert"><p>{move||state.error.get().map(|error|error.to_string())}</p><button class="xcss-button" on:click=move |_|{if state.range.get_untracked().is_none(){state.calendar()}else{state.load(false)}}>{t("重试","Retry")}</button></div></Show><Show when=move||!state.loaded.get()&&state.error.get().is_none()><p role="status">{t("正在加载所选日期的日志…","Loading logs for the selected date…")}</p></Show>
-    <section class="xcss-content-stack" aria-label=t("监控事件","Monitoring events")><Show when=move||state.loaded.get()><Events rows=Signal::derive(move||state.rows.with(|rows|rows[0].clone())) acknowledge=Callback::new(move|id:String|{spawn_local(async move{match command(&format!("/events/{id}/ack"),"POST",None).await{Ok(())=>state.load(true),Err(e)=>state.error.set(Some(e))}});})/></Show><Pager state=state index=0 label=t("监控事件分页","Event history pages")/></section>
-    <section class="xcss-content-stack" aria-label=t("媒体操作日志","Media operation logs")><Show when=move||state.loaded.get()><Operations rows=Signal::derive(move||state.rows.with(|rows|rows[1].clone())) changed=Callback::new(move|_|state.load(true))/></Show><Pager state=state index=1 label=t("媒体操作分页","Media operation pages")/></section>
-    <section class="xcss-content-stack" aria-label=t("审计日志","Audit logs")><Show when=move||state.loaded.get()><Audit rows=Signal::derive(move||state.rows.with(|rows|rows[2].clone()))/></Show><Pager state=state index=2 label=t("审计日志分页","Audit history pages")/></section></section>}
+    View::new(
+    leptos::html::section()
+        .child((
+            leptos::html::section()
+                .child((
+                    leptos::html::p()
+                        .child(
+                            #[allow(unused_braces)]
+                            {
+                                IntoRender::into_render({
+                                    t("实例：全部实例", "Instance: All instances")
+                                })
+                            },
+                        ),
+                    leptos::html::div()
+                        .child((
+                            leptos::html::label()
+                                .child(
+                                    #[allow(unused_braces)]
+                                    {
+                                        IntoRender::into_render({
+                                            t("日志日期范围（UTC）", "Log date range (UTC)")
+                                        })
+                                    },
+                                )
+                                .r#for("xcos-log-date-start-year"),
+                            leptos::html::div()
+                                .child(
+                                    #[allow(unused_braces)]
+                                    {
+                                        leptos::html::button()
+                                            .child(
+                                                #[allow(unused_braces)]
+                                                {
+                                                    IntoRender::into_render({
+                                                        t("刷新日志", "Refresh logs")
+                                                    })
+                                                },
+                                            )
+                                            .class("xcss-button")
+                                            .disabled(
+                                                ::leptos::prelude::IntoAttributeValue::into_attribute_value(move ||
+                                                {
+                                                    state.range.get().is_none() || !state.draft_valid.get()
+                                                        || state.busy.get() && !state.loaded.get()
+                                                }),
+                                            )
+                                            .on(
+                                                leptos::ev::click,
+                                                move |_| state.load(false),
+                                            )
+                                    },
+                                )
+                                .class("xcss-actions"),
+                            {
+                                #[allow(unreachable_code)] #[allow(unused_mut)]
+                                #[allow(clippy::let_and_return, clippy::let_unit_value, clippy::unit_arg)]
+                                component_view(
+                                    #[allow(clippy::needless_borrows_for_generic_args)]
+                                    &DateRange,
+                                    {
+                                        let mut props = component_props_builder(
+                                                &DateRange,
+                                            )
+                                            .range(#[allow(unused_braces)] { state.range })
+                                            .valid(#[allow(unused_braces)] { state.draft_valid })
+                                            .apply(
+                                                #[allow(unused_braces)]
+                                                {
+                                                    Callback::new(move |range| {
+                                                        state.range.set(Some(range));
+                                                        state.cursors.set([None, None, None]);
+                                                        state.history.set([vec![], vec![], vec![]]);
+                                                        state.load(false);
+                                                    })
+                                                },
+                                            )
+                                            .build();
+                                        props
+                                    },
+                                )
+                            },
+                        ))
+                        .class("xcss-log-date-controls"),
+                ))
+                .class("xcss-content-panel xcss-content-stack")
+                .aria_label(
+                    ::leptos::prelude::IntoAttributeValue::into_attribute_value(
+                        t("日志筛选", "Log filters"),
+                    ),
+                ),
+            {
+                #[allow(unreachable_code)] #[allow(unused_mut)]
+                #[allow(clippy::let_and_return, clippy::let_unit_value, clippy::unit_arg)]
+                component_view(
+                    #[allow(clippy::needless_borrows_for_generic_args)]
+                    &Show,
+                    {
+                        let mut props = component_props_builder(
+                                &Show,
+                            )
+                            .when(
+                                #[allow(unused_braces)]
+                                { move || state.error.get().is_some() },
+                            )
+                            .children({
+                                ::leptos::children::ToChildren::to_children(move || {
+                                    leptos::html::div()
+                                        .child((
+                                            leptos::html::p()
+                                                .child(
+                                                    #[allow(unused_braces)]
+                                                    {
+                                                        IntoRender::into_render({
+                                                            move || state.error.get().map(|error| error.to_string())
+                                                        })
+                                                    },
+                                                ),
+                                            leptos::html::button()
+                                                .child(
+                                                    #[allow(unused_braces)]
+                                                    {
+                                                        IntoRender::into_render({
+                                                            t("重试", "Retry")
+                                                        })
+                                                    },
+                                                )
+                                                .class("xcss-button")
+                                                .on(
+                                                    leptos::ev::click,
+                                                    move |_| {
+                                                        if state.range.get_untracked().is_none() {
+                                                            state.calendar()
+                                                        } else {
+                                                            state.load(false)
+                                                        }
+                                                    },
+                                                ),
+                                        ))
+                                        .class("xcss-error")
+                                        .role("alert")
+                                })
+                            })
+                            .build();
+                        props
+                    },
+                )
+            },
+            {
+                #[allow(unreachable_code)] #[allow(unused_mut)]
+                #[allow(clippy::let_and_return, clippy::let_unit_value, clippy::unit_arg)]
+                component_view(
+                    #[allow(clippy::needless_borrows_for_generic_args)]
+                    &Show,
+                    {
+                        let mut props = component_props_builder(
+                                &Show,
+                            )
+                            .when(
+                                #[allow(unused_braces)]
+                                {
+                                    move || !state.loaded.get() && state.error.get().is_none()
+                                },
+                            )
+                            .children({
+                                ::leptos::children::ToChildren::to_children(move || {
+                                    leptos::html::p()
+                                        .child(
+                                            #[allow(unused_braces)]
+                                            {
+                                                IntoRender::into_render({
+                                                    t(
+                                                        "正在加载所选日期的日志…",
+                                                        "Loading logs for the selected date…",
+                                                    )
+                                                })
+                                            },
+                                        )
+                                        .role("status")
+                                })
+                            })
+                            .build();
+                        props
+                    },
+                )
+            },
+            leptos::html::section()
+                .child((
+                    {
+                        #[allow(unreachable_code)] #[allow(unused_mut)]
+                        #[allow(clippy::let_and_return, clippy::let_unit_value, clippy::unit_arg)]
+                        component_view(
+                            #[allow(clippy::needless_borrows_for_generic_args)]
+                            &Show,
+                            {
+                                let mut props = component_props_builder(
+                                        &Show,
+                                    )
+                                    .when(
+                                        #[allow(unused_braces)]
+                                        { move || state.loaded.get() },
+                                    )
+                                    .children({
+                                        ::leptos::children::ToChildren::to_children(move || {
+                                            #[allow(unreachable_code)] #[allow(unused_mut)]
+                                            #[allow(clippy::let_and_return, clippy::let_unit_value, clippy::unit_arg)]
+                                            component_view(
+                                                #[allow(clippy::needless_borrows_for_generic_args)]
+                                                &Events,
+                                                {
+                                                    let mut props = component_props_builder(
+                                                            &Events,
+                                                        )
+                                                        .rows(
+                                                            #[allow(unused_braces)]
+                                                            {
+                                                                Signal::derive(move || {
+                                                                    state.rows.with(|rows| rows[0].clone())
+                                                                })
+                                                            },
+                                                        )
+                                                        .acknowledge(
+                                                            #[allow(unused_braces)]
+                                                            {
+                                                                Callback::new(move |id: String| {
+                                                                    spawn_local(async move {
+                                                                        match command(&format!("/events/{id}/ack"), "POST", None)
+                                                                            .await
+                                                                        {
+                                                                            Ok(()) => state.load(true),
+                                                                            Err(e) => state.error.set(Some(e)),
+                                                                        }
+                                                                    });
+                                                                })
+                                                            },
+                                                        )
+                                                        .build();
+                                                    props
+                                                },
+                                            )
+                                        })
+                                    })
+                                    .build();
+                                props
+                            },
+                        )
+                    },
+                    {
+                        #[allow(unreachable_code)] #[allow(unused_mut)]
+                        #[allow(clippy::let_and_return, clippy::let_unit_value, clippy::unit_arg)]
+                        component_view(
+                            #[allow(clippy::needless_borrows_for_generic_args)]
+                            &Pager,
+                            {
+                                let mut props = component_props_builder(
+                                        &Pager,
+                                    )
+                                    .state(#[allow(unused_braces)] { state })
+                                    .index(#[allow(unused_braces)] { 0 })
+                                    .label(
+                                        #[allow(unused_braces)]
+                                        { t("监控事件分页", "Event history pages") },
+                                    )
+                                    .build();
+                                props
+                            },
+                        )
+                    },
+                ))
+                .class("xcss-content-stack")
+                .aria_label(
+                    ::leptos::prelude::IntoAttributeValue::into_attribute_value(
+                        t("监控事件", "Monitoring events"),
+                    ),
+                ),
+            leptos::html::section()
+                .child((
+                    {
+                        #[allow(unreachable_code)] #[allow(unused_mut)]
+                        #[allow(clippy::let_and_return, clippy::let_unit_value, clippy::unit_arg)]
+                        component_view(
+                            #[allow(clippy::needless_borrows_for_generic_args)]
+                            &Show,
+                            {
+                                let mut props = component_props_builder(
+                                        &Show,
+                                    )
+                                    .when(
+                                        #[allow(unused_braces)]
+                                        { move || state.loaded.get() },
+                                    )
+                                    .children({
+                                        ::leptos::children::ToChildren::to_children(move || {
+                                            #[allow(unreachable_code)] #[allow(unused_mut)]
+                                            #[allow(clippy::let_and_return, clippy::let_unit_value, clippy::unit_arg)]
+                                            component_view(
+                                                #[allow(clippy::needless_borrows_for_generic_args)]
+                                                &Operations,
+                                                {
+                                                    let mut props = component_props_builder(
+                                                            &Operations,
+                                                        )
+                                                        .rows(
+                                                            #[allow(unused_braces)]
+                                                            {
+                                                                Signal::derive(move || {
+                                                                    state.rows.with(|rows| rows[1].clone())
+                                                                })
+                                                            },
+                                                        )
+                                                        .changed(
+                                                            #[allow(unused_braces)]
+                                                            { Callback::new(move |_| state.load(true)) },
+                                                        )
+                                                        .build();
+                                                    props
+                                                },
+                                            )
+                                        })
+                                    })
+                                    .build();
+                                props
+                            },
+                        )
+                    },
+                    {
+                        #[allow(unreachable_code)] #[allow(unused_mut)]
+                        #[allow(clippy::let_and_return, clippy::let_unit_value, clippy::unit_arg)]
+                        component_view(
+                            #[allow(clippy::needless_borrows_for_generic_args)]
+                            &Pager,
+                            {
+                                let mut props = component_props_builder(
+                                        &Pager,
+                                    )
+                                    .state(#[allow(unused_braces)] { state })
+                                    .index(#[allow(unused_braces)] { 1 })
+                                    .label(
+                                        #[allow(unused_braces)]
+                                        { t("媒体操作分页", "Media operation pages") },
+                                    )
+                                    .build();
+                                props
+                            },
+                        )
+                    },
+                ))
+                .class("xcss-content-stack")
+                .aria_label(
+                    ::leptos::prelude::IntoAttributeValue::into_attribute_value(
+                        t("媒体操作日志", "Media operation logs"),
+                    ),
+                ),
+            leptos::html::section()
+                .child((
+                    {
+                        #[allow(unreachable_code)] #[allow(unused_mut)]
+                        #[allow(clippy::let_and_return, clippy::let_unit_value, clippy::unit_arg)]
+                        component_view(
+                            #[allow(clippy::needless_borrows_for_generic_args)]
+                            &Show,
+                            {
+                                let mut props = component_props_builder(
+                                        &Show,
+                                    )
+                                    .when(
+                                        #[allow(unused_braces)]
+                                        { move || state.loaded.get() },
+                                    )
+                                    .children({
+                                        ::leptos::children::ToChildren::to_children(move || {
+                                            #[allow(unreachable_code)] #[allow(unused_mut)]
+                                            #[allow(clippy::let_and_return, clippy::let_unit_value, clippy::unit_arg)]
+                                            component_view(
+                                                #[allow(clippy::needless_borrows_for_generic_args)]
+                                                &Audit,
+                                                {
+                                                    let mut props = component_props_builder(
+                                                            &Audit,
+                                                        )
+                                                        .rows(
+                                                            #[allow(unused_braces)]
+                                                            {
+                                                                Signal::derive(move || {
+                                                                    state.rows.with(|rows| rows[2].clone())
+                                                                })
+                                                            },
+                                                        )
+                                                        .build();
+                                                    props
+                                                },
+                                            )
+                                        })
+                                    })
+                                    .build();
+                                props
+                            },
+                        )
+                    },
+                    {
+                        #[allow(unreachable_code)] #[allow(unused_mut)]
+                        #[allow(clippy::let_and_return, clippy::let_unit_value, clippy::unit_arg)]
+                        component_view(
+                            #[allow(clippy::needless_borrows_for_generic_args)]
+                            &Pager,
+                            {
+                                let mut props = component_props_builder(
+                                        &Pager,
+                                    )
+                                    .state(#[allow(unused_braces)] { state })
+                                    .index(#[allow(unused_braces)] { 2 })
+                                    .label(
+                                        #[allow(unused_braces)]
+                                        { t("审计日志分页", "Audit history pages") },
+                                    )
+                                    .build();
+                                props
+                            },
+                        )
+                    },
+                ))
+                .class("xcss-content-stack")
+                .aria_label(
+                    ::leptos::prelude::IntoAttributeValue::into_attribute_value(
+                        t("审计日志", "Audit logs"),
+                    ),
+                ),
+        ))
+        .class("xcss-content-stack")
+        .aria_label(
+            ::leptos::prelude::IntoAttributeValue::into_attribute_value(
+                t("日志", "Logs"),
+            ),
+        ),
+)
 }
 #[component]
 fn Pager(state: LogState, index: usize, label: String) -> impl IntoView {
-    view! {<nav class="xcss-actions" aria-label=label><button class="xcss-button" disabled=move||!state.loaded.get()||!state.draft_valid.get()||state.cursors.get()[index].is_none() on:click=move |_|state.navigate(index,"first")>{t("首页","First page")}</button><button class="xcss-button" disabled=move||!state.loaded.get()||!state.draft_valid.get()||state.history.get()[index].is_empty() on:click=move |_|state.navigate(index,"previous")>{t("上一页","Previous page")}</button><button class="xcss-button" disabled=move||!state.loaded.get()||!state.draft_valid.get()||state.next.get()[index].is_none() on:click=move |_|state.navigate(index,"next")>{t("下一页","Next page")}</button></nav>}
+    View::new(
+        leptos::html::nav()
+            .child((
+                leptos::html::button()
+                    .child(
+                        #[allow(unused_braces)]
+                        {
+                            IntoRender::into_render({ t("首页", "First page") })
+                        },
+                    )
+                    .class("xcss-button")
+                    .disabled(::leptos::prelude::IntoAttributeValue::into_attribute_value(
+                        move || {
+                            !state.loaded.get()
+                                || !state.draft_valid.get()
+                                || state.cursors.get()[index].is_none()
+                        },
+                    ))
+                    .on(leptos::ev::click, move |_| state.navigate(index, "first")),
+                leptos::html::button()
+                    .child(
+                        #[allow(unused_braces)]
+                        {
+                            IntoRender::into_render({ t("上一页", "Previous page") })
+                        },
+                    )
+                    .class("xcss-button")
+                    .disabled(::leptos::prelude::IntoAttributeValue::into_attribute_value(
+                        move || {
+                            !state.loaded.get()
+                                || !state.draft_valid.get()
+                                || state.history.get()[index].is_empty()
+                        },
+                    ))
+                    .on(leptos::ev::click, move |_| {
+                        state.navigate(index, "previous")
+                    }),
+                leptos::html::button()
+                    .child(
+                        #[allow(unused_braces)]
+                        {
+                            IntoRender::into_render({ t("下一页", "Next page") })
+                        },
+                    )
+                    .class("xcss-button")
+                    .disabled(::leptos::prelude::IntoAttributeValue::into_attribute_value(
+                        move || {
+                            !state.loaded.get()
+                                || !state.draft_valid.get()
+                                || state.next.get()[index].is_none()
+                        },
+                    ))
+                    .on(leptos::ev::click, move |_| state.navigate(index, "next")),
+            ))
+            .class("xcss-actions")
+            .aria_label(::leptos::prelude::IntoAttributeValue::into_attribute_value(
+                label,
+            )),
+    )
 }
 
 #[component]
 fn Events(rows: Signal<Vec<Value>>, acknowledge: Callback<String>) -> impl IntoView {
     let app = expect_context::<AppState>();
-    view! {<Show when=move||!rows.get().is_empty() fallback=move||view!{<p class="empty-state">{t("没有事件","No events")}</p>}><div class="xcss-table-scroll"><table class="xcss-table xcos-log-table" aria-label=t("监控事件","Monitoring events")><caption>{t("监控事件","Monitoring events")}</caption><thead><tr>{[("服务器时间","Server time"),("等级","Severity"),("事件","Event"),("摄像头","Camera"),("状态","Status")].into_iter().map(|(zh,en)|view!{<th>{t(zh,en)}</th>}).collect_view()}</tr></thead><tbody><For each=move||rows.get() key=|v|format!("{}:{}",value(v,"id"),value(v,"acknowledged_at")) children=move|row|{let id=value(&row,"id");let camera=value(&row,"camera_id");view!{<tr><td><time>{value(&row,"created_at")}</time></td><td>{match value(&row,"severity").as_str(){"info"=>t("信息","Information"),"warning"=>t("警告","Warning"),"critical"=>t("严重","Critical"),_=>t("未知","Unknown")}}</td><td>{label(&value(&row,"kind"))}</td><td>{move||app.cameras.get().into_iter().find(|c|c.id==camera).map(|c|c.name).unwrap_or(t("系统","System"))}</td><td>{if row.get("acknowledged_at").is_none_or(Value::is_null){view!{<div class="xcss-actions"><button class="xcss-button" on:click=move |_|acknowledge.run(id.clone())>{t("确认","Acknowledge")}</button></div>}.into_any()}else{t("已确认","Acknowledged").into_any()}}</td></tr>}}/></tbody></table></div></Show>}
+    View::new({
+        #[allow(unreachable_code)]
+        #[allow(unused_mut)]
+        #[allow(clippy::let_and_return, clippy::let_unit_value, clippy::unit_arg)]
+        component_view(
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            &Show,
+            {
+                let mut props = component_props_builder(&Show)
+                .when(#[allow(unused_braces)] { move || !rows.get().is_empty() })
+                .fallback(
+                    #[allow(unused_braces)]
+                    {
+                        move || {
+                            View::new(
+    leptos::html::p()
+        .child(
+            #[allow(unused_braces)]
+            {
+                IntoRender::into_render({
+                    t("没有事件", "No events")
+                })
+            },
+        )
+        .class("empty-state"),
+)
+                        }
+                    },
+                )
+                .children({
+                    ::leptos::children::ToChildren::to_children(move || {
+                        leptos::html::div()
+                            .child(
+                                #[allow(unused_braces)]
+                                {
+                                    leptos::html::table()
+                                        .child((
+                                            leptos::html::caption()
+                                                .child(
+                                                    #[allow(unused_braces)]
+                                                    {
+                                                        IntoRender::into_render({
+                                                            t("监控事件", "Monitoring events")
+                                                        })
+                                                    },
+                                                ),
+                                            leptos::html::thead()
+                                                .child(
+                                                    #[allow(unused_braces)]
+                                                    {
+                                                        leptos::html::tr()
+                                                            .child(
+                                                                #[allow(unused_braces)]
+                                                                {
+                                                                    IntoRender::into_render({
+                                                                        [
+                                                                            ("服务器时间", "Server time"),
+                                                                            ("等级", "Severity"),
+                                                                            ("事件", "Event"),
+                                                                            ("摄像头", "Camera"),
+                                                                            ("状态", "Status"),
+                                                                        ]
+                                                                            .into_iter()
+                                                                            .map(|(zh, en)| {
+                                                                                View::new(
+    leptos::html::th()
+        .child(
+            #[allow(unused_braces)]
+            { IntoRender::into_render({ t(zh, en) }) },
+        ),
+)
+                                                                            })
+                                                                            .collect_view()
+                                                                    })
+                                                                },
+                                                            )
+                                                    },
+                                                ),
+                                            leptos::html::tbody()
+                                                .child(
+                                                    #[allow(unused_braces)]
+                                                    {
+                                                        {
+                                                            #[allow(unreachable_code)] #[allow(unused_mut)]
+                                                            #[allow(clippy::let_and_return, clippy::let_unit_value, clippy::unit_arg)]
+                                                            component_view(
+                                                                #[allow(clippy::needless_borrows_for_generic_args)]
+                                                                &For,
+                                                                {
+                                                                    let mut props = component_props_builder(
+                                                                            &For,
+                                                                        )
+                                                                        .each(#[allow(unused_braces)] { move || rows.get() })
+                                                                        .key(
+                                                                            #[allow(unused_braces)]
+                                                                            {
+                                                                                |v| {
+                                                                                    format!(
+                                                                                        "{}:{}", value(v, "id"), value(v, "acknowledged_at")
+                                                                                    )
+                                                                                }
+                                                                            },
+                                                                        )
+                                                                        .children(
+                                                                            #[allow(unused_braces)]
+                                                                            {
+                                                                                move |row| {
+                                                                                    let id = value(&row, "id");
+                                                                                    let camera = value(&row, "camera_id");
+                                                                                    View::new(
+    leptos::html::tr()
+        .child((
+            leptos::html::td()
+                .child(
+                    #[allow(unused_braces)]
+                    {
+                        leptos::html::time()
+                            .child(
+                                #[allow(unused_braces)]
+                                {
+                                    IntoRender::into_render({
+                                        value(&row, "created_at")
+                                    })
+                                },
+                            )
+                    },
+                ),
+            leptos::html::td()
+                .child(
+                    #[allow(unused_braces)]
+                    {
+                        IntoRender::into_render({
+                            match value(&row, "severity").as_str() {
+                                "info" => t("信息", "Information"),
+                                "warning" => t("警告", "Warning"),
+                                "critical" => t("严重", "Critical"),
+                                _ => t("未知", "Unknown"),
+                            }
+                        })
+                    },
+                ),
+            leptos::html::td()
+                .child(
+                    #[allow(unused_braces)]
+                    {
+                        IntoRender::into_render({
+                            label(&value(&row, "kind"))
+                        })
+                    },
+                ),
+            leptos::html::td()
+                .child(
+                    #[allow(unused_braces)]
+                    {
+                        IntoRender::into_render({
+                            move || {
+                                app
+                                    .cameras
+                                    .get()
+                                    .into_iter()
+                                    .find(|c| c.id == camera)
+                                    .map(|c| c.name)
+                                    .unwrap_or(t("系统", "System"))
+                            }
+                        })
+                    },
+                ),
+            leptos::html::td()
+                .child(
+                    #[allow(unused_braces)]
+                    {
+                        IntoRender::into_render({
+                            if row.get("acknowledged_at").is_none_or(Value::is_null) {
+                                View::new(
+    leptos::html::div()
+        .child(
+            #[allow(unused_braces)]
+            {
+                leptos::html::button()
+                    .child(
+                        #[allow(unused_braces)]
+                        {
+                            IntoRender::into_render({
+                                t("确认", "Acknowledge")
+                            })
+                        },
+                    )
+                    .class("xcss-button")
+                    .on(
+                        leptos::ev::click,
+                        move |_| acknowledge.run(id.clone()),
+                    )
+            },
+        )
+        .class("xcss-actions"),
+)
+                                    .into_any()
+                            } else {
+                                t("已确认", "Acknowledged").into_any()
+                            }
+                        })
+                    },
+                ),
+        )),
+)
+                                                                                }
+                                                                            },
+                                                                        )
+                                                                        .build();
+                                                                    props
+                                                                },
+                                                            )
+                                                        }
+                                                    },
+                                                ),
+                                        ))
+                                        .class("xcss-table xcos-log-table")
+                                        .aria_label(
+                                            ::leptos::prelude::IntoAttributeValue::into_attribute_value(
+                                                t("监控事件", "Monitoring events"),
+                                            ),
+                                        )
+                                },
+                            )
+                            .class("xcss-table-scroll")
+                    })
+                })
+                .build();
+                props
+            },
+        )
+    })
 }
 #[component]
 fn Audit(rows: Signal<Vec<Value>>) -> impl IntoView {
-    view! {<Show when=move||!rows.get().is_empty() fallback=move||view!{<p class="empty-state">{t("暂无审计日志","No audit logs yet")}</p>}><div class="xcss-table-scroll"><table class="xcss-table xcos-log-table" aria-label=t("审计日志","Audit logs")><caption>{t("审计日志","Audit logs")}</caption><thead><tr>{[("服务器时间","Server time"),("操作","Action"),("操作者","Actor"),("对象","Entity"),("详情","Details")].into_iter().map(|(zh,en)|view!{<th>{t(zh,en)}</th>}).collect_view()}</tr></thead><tbody><For each=move||rows.get() key=|v|value(v,"id") children=move|row|view!{<tr><td><time>{value(&row,"created_at")}</time></td><td>{label(&value(&row,"action"))}</td><td><code>{row.get("user_id").and_then(Value::as_str).map(String::from).unwrap_or(t("系统","System"))}</code></td><td>{label(&value(&row,"entity_type"))}{row.get("entity_id").and_then(Value::as_str).map(|id|view!{" / "<code>{id.to_string()}</code>})}</td><td><details><summary>{t("详情","Details")}</summary><code>{safe_details(row.get("details").unwrap_or(&Value::Null))}</code></details></td></tr>}/></tbody></table></div></Show>}
+    View::new({
+        #[allow(unreachable_code)]
+        #[allow(unused_mut)]
+        #[allow(clippy::let_and_return, clippy::let_unit_value, clippy::unit_arg)]
+        component_view(
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            &Show,
+            {
+                let mut props = component_props_builder(&Show)
+                .when(#[allow(unused_braces)] { move || !rows.get().is_empty() })
+                .fallback(
+                    #[allow(unused_braces)]
+                    {
+                        move || {
+                            View::new(
+    leptos::html::p()
+        .child(
+            #[allow(unused_braces)]
+            {
+                IntoRender::into_render({
+                    t("暂无审计日志", "No audit logs yet")
+                })
+            },
+        )
+        .class("empty-state"),
+)
+                        }
+                    },
+                )
+                .children({
+                    ::leptos::children::ToChildren::to_children(move || {
+                        leptos::html::div()
+                            .child(
+                                #[allow(unused_braces)]
+                                {
+                                    leptos::html::table()
+                                        .child((
+                                            leptos::html::caption()
+                                                .child(
+                                                    #[allow(unused_braces)]
+                                                    {
+                                                        IntoRender::into_render({
+                                                            t("审计日志", "Audit logs")
+                                                        })
+                                                    },
+                                                ),
+                                            leptos::html::thead()
+                                                .child(
+                                                    #[allow(unused_braces)]
+                                                    {
+                                                        leptos::html::tr()
+                                                            .child(
+                                                                #[allow(unused_braces)]
+                                                                {
+                                                                    IntoRender::into_render({
+                                                                        [
+                                                                            ("服务器时间", "Server time"),
+                                                                            ("操作", "Action"),
+                                                                            ("操作者", "Actor"),
+                                                                            ("对象", "Entity"),
+                                                                            ("详情", "Details"),
+                                                                        ]
+                                                                            .into_iter()
+                                                                            .map(|(zh, en)| {
+                                                                                View::new(
+    leptos::html::th()
+        .child(
+            #[allow(unused_braces)]
+            { IntoRender::into_render({ t(zh, en) }) },
+        ),
+)
+                                                                            })
+                                                                            .collect_view()
+                                                                    })
+                                                                },
+                                                            )
+                                                    },
+                                                ),
+                                            leptos::html::tbody()
+                                                .child(
+                                                    #[allow(unused_braces)]
+                                                    {
+                                                        {
+                                                            #[allow(unreachable_code)] #[allow(unused_mut)]
+                                                            #[allow(clippy::let_and_return, clippy::let_unit_value, clippy::unit_arg)]
+                                                            component_view(
+                                                                #[allow(clippy::needless_borrows_for_generic_args)]
+                                                                &For,
+                                                                {
+                                                                    let mut props = component_props_builder(
+                                                                            &For,
+                                                                        )
+                                                                        .each(#[allow(unused_braces)] { move || rows.get() })
+                                                                        .key(#[allow(unused_braces)] { |v| value(v, "id") })
+                                                                        .children(
+                                                                            #[allow(unused_braces)]
+                                                                            {
+                                                                                move |row| {
+                                                                                    View::new(
+    leptos::html::tr()
+        .child((
+            leptos::html::td()
+                .child(
+                    #[allow(unused_braces)]
+                    {
+                        leptos::html::time()
+                            .child(
+                                #[allow(unused_braces)]
+                                {
+                                    IntoRender::into_render({
+                                        value(&row, "created_at")
+                                    })
+                                },
+                            )
+                    },
+                ),
+            leptos::html::td()
+                .child(
+                    #[allow(unused_braces)]
+                    {
+                        IntoRender::into_render({
+                            label(&value(&row, "action"))
+                        })
+                    },
+                ),
+            leptos::html::td()
+                .child(
+                    #[allow(unused_braces)]
+                    {
+                        leptos::html::code()
+                            .child(
+                                #[allow(unused_braces)]
+                                {
+                                    IntoRender::into_render({
+                                        row.get("user_id")
+                                            .and_then(Value::as_str)
+                                            .map(String::from)
+                                            .unwrap_or(t("系统", "System"))
+                                    })
+                                },
+                            )
+                    },
+                ),
+            leptos::html::td()
+                .child((
+                    IntoRender::into_render({
+                        label(&value(&row, "entity_type"))
+                    }),
+                    IntoRender::into_render({
+                        row.get("entity_id")
+                            .and_then(Value::as_str)
+                            .map(|id| {
+                                View::new((
+    " / ",
+    leptos::html::code()
+        .child(
+            #[allow(unused_braces)]
+            { IntoRender::into_render({ id.to_string() }) },
+        ),
+))
+                            })
+                    }),
+                )),
+            leptos::html::td()
+                .child(
+                    #[allow(unused_braces)]
+                    {
+                        leptos::html::details()
+                            .child((
+                                leptos::html::summary()
+                                    .child(
+                                        #[allow(unused_braces)]
+                                        {
+                                            IntoRender::into_render({
+                                                t("详情", "Details")
+                                            })
+                                        },
+                                    ),
+                                leptos::html::code()
+                                    .child(
+                                        #[allow(unused_braces)]
+                                        {
+                                            IntoRender::into_render({
+                                                safe_details(row.get("details").unwrap_or(&Value::Null))
+                                            })
+                                        },
+                                    ),
+                            ))
+                    },
+                ),
+        )),
+)
+                                                                                }
+                                                                            },
+                                                                        )
+                                                                        .build();
+                                                                    props
+                                                                },
+                                                            )
+                                                        }
+                                                    },
+                                                ),
+                                        ))
+                                        .class("xcss-table xcos-log-table")
+                                        .aria_label(
+                                            ::leptos::prelude::IntoAttributeValue::into_attribute_value(
+                                                t("审计日志", "Audit logs"),
+                                            ),
+                                        )
+                                },
+                            )
+                            .class("xcss-table-scroll")
+                    })
+                })
+                .build();
+                props
+            },
+        )
+    })
 }
 
 #[component]
@@ -234,8 +1172,437 @@ fn Operations(rows: Signal<Vec<Value>>, changed: Callback<()>) -> impl IntoView 
     let pending = RwSignal::new(false);
     let error = RwSignal::new(None);
     let resolution = RwSignal::new(None::<(String, String, String)>);
-    view! {<section class="xcss-content-stack" aria-label=t("媒体协调操作","Media reconciliation operations")><Failure error=error/><Show when=move||!rows.get().is_empty() fallback=move||view!{<p class="empty-state">{t("暂无媒体协调操作","No media reconciliation operations")}</p>}><div class="xcss-table-scroll"><table class="xcss-table xcos-log-table" aria-label=t("媒体协调操作","Media reconciliation operations")><caption>{t("媒体协调操作","Media reconciliation operations")}</caption><thead><tr>{[("服务器时间","Server time"),("摄像头","Camera"),("状态","Status"),("详情","Details")].into_iter().map(|(zh,en)|view!{<th>{t(zh,en)}</th>}).collect_view()}</tr></thead><tbody><For each=move||rows.get() key=|v|format!("{}:{}:{}",value(v,"id"),value(v,"state"),v.get("attempt").unwrap_or(&Value::Null)) children=move|row|{let camera=value(&row,"camera_id");let id=value(&row,"id");let state=value(&row,"state");view!{<tr><td><time>{value(&row,"created_at")}</time></td><td>{move||app.cameras.get().into_iter().find(|c|c.id==camera).map(|c|c.name).unwrap_or(camera.clone())}</td><td>{label(&state)}</td><td><details><summary>{t("详情","Details")}</summary><dl class="xcos-detail-list"><dt>{t("操作标识","Operation ID")}</dt><dd><code>{id.clone()}</code></dd><dt>{t("原因","Reason")}</dt><dd>{label(&value(&row,"reason"))}</dd><dt>{t("代际 / 尝试","Generation / attempts")}</dt><dd>{format!("{} / {} of {}",row.get("generation").unwrap_or(&Value::Null),row.get("attempt").unwrap_or(&Value::Null),row.get("max_attempts").unwrap_or(&Value::Null))}</dd><dt>{t("错误","Error")}</dt><dd>{value(&row,"error_code")}</dd></dl>{if ["unknown","failed","dead_letter"].contains(&state.as_str()){[("confirmed_succeeded","确认已成功","Confirm success"),("confirmed_failed","确认未成功","Confirm failure"),("unable_to_confirm","仍无法确认","Still unable to confirm")].into_iter().map(|(choice,zh,en)|{let id=id.clone();view!{<button class="xcss-button" disabled=move||pending.get() on:click=move |_|resolution.set(Some((id.clone(),choice.into(),t(zh,en))))>{t(zh,en)}</button>}}).collect_view().into_any()}else{().into_any()}}</details></td></tr>}}/></tbody></table></div></Show>
-    {move||resolution.get().map(|(id,choice,title)|view!{<Confirm title=title description=t("请先核对 MediaMTX 与摄像头的实际状态。此操作只记录人工结论，不会重新执行原媒体操作。","Check the actual MediaMTX and camera state first. This only records a manual conclusion and does not rerun the media operation.") close=Callback::new(move|_|resolution.set(None)) accept=Callback::new(move|_|{if pending.get_untracked(){return}pending.set(true);resolution.set(None);let id=id.clone();let choice=choice.clone();spawn_local(async move{let result=command(&format!("/media/operations/{id}/resolve"),"POST",Some(json!({"resolution":choice}))).await;if pending.is_disposed(){return}pending.set(false);match result{Ok(())=>{changed.run(());app.toast(t("人工结论已记录；原媒体操作不会重新执行","The manual conclusion was recorded; the media operation was not rerun"))},Err(e)=>error.set(Some(e))}});})/>})}</section>}
+    View::new(
+    leptos::html::section()
+        .child((
+            {
+                #[allow(unreachable_code)] #[allow(unused_mut)]
+                #[allow(clippy::let_and_return, clippy::let_unit_value, clippy::unit_arg)]
+                component_view(
+                    #[allow(clippy::needless_borrows_for_generic_args)]
+                    &Failure,
+                    {
+                        let mut props = component_props_builder(
+                                &Failure,
+                            )
+                            .error(#[allow(unused_braces)] { error })
+                            .build();
+                        props
+                    },
+                )
+            },
+            {
+                #[allow(unreachable_code)] #[allow(unused_mut)]
+                #[allow(clippy::let_and_return, clippy::let_unit_value, clippy::unit_arg)]
+                component_view(
+                    #[allow(clippy::needless_borrows_for_generic_args)]
+                    &Show,
+                    {
+                        let mut props = component_props_builder(
+                                &Show,
+                            )
+                            .when(
+                                #[allow(unused_braces)]
+                                { move || !rows.get().is_empty() },
+                            )
+                            .fallback(
+                                #[allow(unused_braces)]
+                                {
+                                    move || {
+                                        View::new(
+    leptos::html::p()
+        .child(
+            #[allow(unused_braces)]
+            {
+                IntoRender::into_render({
+                    t(
+                        "暂无媒体协调操作",
+                        "No media reconciliation operations",
+                    )
+                })
+            },
+        )
+        .class("empty-state"),
+)
+                                    }
+                                },
+                            )
+                            .children({
+                                ::leptos::children::ToChildren::to_children(move || {
+                                    leptos::html::div()
+                                        .child(
+                                            #[allow(unused_braces)]
+                                            {
+                                                leptos::html::table()
+                                                    .child((
+                                                        leptos::html::caption()
+                                                            .child(
+                                                                #[allow(unused_braces)]
+                                                                {
+                                                                    IntoRender::into_render({
+                                                                        t("媒体协调操作", "Media reconciliation operations")
+                                                                    })
+                                                                },
+                                                            ),
+                                                        leptos::html::thead()
+                                                            .child(
+                                                                #[allow(unused_braces)]
+                                                                {
+                                                                    leptos::html::tr()
+                                                                        .child(
+                                                                            #[allow(unused_braces)]
+                                                                            {
+                                                                                IntoRender::into_render({
+                                                                                    [
+                                                                                        ("服务器时间", "Server time"),
+                                                                                        ("摄像头", "Camera"),
+                                                                                        ("状态", "Status"),
+                                                                                        ("详情", "Details"),
+                                                                                    ]
+                                                                                        .into_iter()
+                                                                                        .map(|(zh, en)| {
+                                                                                            View::new(
+    leptos::html::th()
+        .child(
+            #[allow(unused_braces)]
+            { IntoRender::into_render({ t(zh, en) }) },
+        ),
+)
+                                                                                        })
+                                                                                        .collect_view()
+                                                                                })
+                                                                            },
+                                                                        )
+                                                                },
+                                                            ),
+                                                        leptos::html::tbody()
+                                                            .child(
+                                                                #[allow(unused_braces)]
+                                                                {
+                                                                    {
+                                                                        #[allow(unreachable_code)] #[allow(unused_mut)]
+                                                                        #[allow(clippy::let_and_return, clippy::let_unit_value, clippy::unit_arg)]
+                                                                        component_view(
+                                                                            #[allow(clippy::needless_borrows_for_generic_args)]
+                                                                            &For,
+                                                                            {
+                                                                                let mut props = component_props_builder(
+                                                                                        &For,
+                                                                                    )
+                                                                                    .each(#[allow(unused_braces)] { move || rows.get() })
+                                                                                    .key(
+                                                                                        #[allow(unused_braces)]
+                                                                                        {
+                                                                                            |v| {
+                                                                                                format!(
+                                                                                                    "{}:{}:{}", value(v, "id"), value(v, "state"), v
+                                                                                                    .get("attempt").unwrap_or(& Value::Null)
+                                                                                                )
+                                                                                            }
+                                                                                        },
+                                                                                    )
+                                                                                    .children(
+                                                                                        #[allow(unused_braces)]
+                                                                                        {
+                                                                                            move |row| {
+                                                                                                let camera = value(&row, "camera_id");
+                                                                                                let id = value(&row, "id");
+                                                                                                let state = value(&row, "state");
+                                                                                                View::new(
+    leptos::html::tr()
+        .child((
+            leptos::html::td()
+                .child(
+                    #[allow(unused_braces)]
+                    {
+                        leptos::html::time()
+                            .child(
+                                #[allow(unused_braces)]
+                                {
+                                    IntoRender::into_render({
+                                        value(&row, "created_at")
+                                    })
+                                },
+                            )
+                    },
+                ),
+            leptos::html::td()
+                .child(
+                    #[allow(unused_braces)]
+                    {
+                        IntoRender::into_render({
+                            move || {
+                                app
+                                    .cameras
+                                    .get()
+                                    .into_iter()
+                                    .find(|c| c.id == camera)
+                                    .map(|c| c.name)
+                                    .unwrap_or(camera.clone())
+                            }
+                        })
+                    },
+                ),
+            leptos::html::td()
+                .child(
+                    #[allow(unused_braces)]
+                    { IntoRender::into_render({ label(&state) }) },
+                ),
+            leptos::html::td()
+                .child(
+                    #[allow(unused_braces)]
+                    {
+                        leptos::html::details()
+                            .child((
+                                leptos::html::summary()
+                                    .child(
+                                        #[allow(unused_braces)]
+                                        {
+                                            IntoRender::into_render({
+                                                t("详情", "Details")
+                                            })
+                                        },
+                                    ),
+                                leptos::html::dl()
+                                    .child((
+                                        leptos::html::dt()
+                                            .child(
+                                                #[allow(unused_braces)]
+                                                {
+                                                    IntoRender::into_render({
+                                                        t("操作标识", "Operation ID")
+                                                    })
+                                                },
+                                            ),
+                                        leptos::html::dd()
+                                            .child(
+                                                #[allow(unused_braces)]
+                                                {
+                                                    leptos::html::code()
+                                                        .child(
+                                                            #[allow(unused_braces)]
+                                                            {
+                                                                IntoRender::into_render({ id.clone() })
+                                                            },
+                                                        )
+                                                },
+                                            ),
+                                        leptos::html::dt()
+                                            .child(
+                                                #[allow(unused_braces)]
+                                                {
+                                                    IntoRender::into_render({
+                                                        t("原因", "Reason")
+                                                    })
+                                                },
+                                            ),
+                                        leptos::html::dd()
+                                            .child(
+                                                #[allow(unused_braces)]
+                                                {
+                                                    IntoRender::into_render({
+                                                        label(&value(&row, "reason"))
+                                                    })
+                                                },
+                                            ),
+                                        leptos::html::dt()
+                                            .child(
+                                                #[allow(unused_braces)]
+                                                {
+                                                    IntoRender::into_render({
+                                                        t("代际 / 尝试", "Generation / attempts")
+                                                    })
+                                                },
+                                            ),
+                                        leptos::html::dd()
+                                            .child(
+                                                #[allow(unused_braces)]
+                                                {
+                                                    IntoRender::into_render({
+                                                        format!(
+                                                            "{} / {} of {}", row.get("generation").unwrap_or(&
+                                                            Value::Null), row.get("attempt").unwrap_or(& Value::Null),
+                                                            row.get("max_attempts").unwrap_or(& Value::Null)
+                                                        )
+                                                    })
+                                                },
+                                            ),
+                                        leptos::html::dt()
+                                            .child(
+                                                #[allow(unused_braces)]
+                                                {
+                                                    IntoRender::into_render({
+                                                        t("错误", "Error")
+                                                    })
+                                                },
+                                            ),
+                                        leptos::html::dd()
+                                            .child(
+                                                #[allow(unused_braces)]
+                                                {
+                                                    IntoRender::into_render({
+                                                        value(&row, "error_code")
+                                                    })
+                                                },
+                                            ),
+                                    ))
+                                    .class("xcos-detail-list"),
+                                IntoRender::into_render({
+                                    if ["unknown", "failed", "dead_letter"]
+                                        .contains(&state.as_str())
+                                    {
+                                        [
+                                            (
+                                                "confirmed_succeeded",
+                                                "确认已成功",
+                                                "Confirm success",
+                                            ),
+                                            ("confirmed_failed", "确认未成功", "Confirm failure"),
+                                            (
+                                                "unable_to_confirm",
+                                                "仍无法确认",
+                                                "Still unable to confirm",
+                                            ),
+                                        ]
+                                            .into_iter()
+                                            .map(|(choice, zh, en)| {
+                                                let id = id.clone();
+                                                View::new(
+    leptos::html::button()
+        .child(
+            #[allow(unused_braces)]
+            { IntoRender::into_render({ t(zh, en) }) },
+        )
+        .class("xcss-button")
+        .disabled(
+            ::leptos::prelude::IntoAttributeValue::into_attribute_value(move || {
+                pending.get()
+            }),
+        )
+        .on(
+            leptos::ev::click,
+            move |_| resolution.set(Some((id.clone(), choice.into(), t(zh, en)))),
+        ),
+)
+                                            })
+                                            .collect_view()
+                                            .into_any()
+                                    } else {
+                                        ().into_any()
+                                    }
+                                }),
+                            ))
+                    },
+                ),
+        )),
+)
+                                                                                            }
+                                                                                        },
+                                                                                    )
+                                                                                    .build();
+                                                                                props
+                                                                            },
+                                                                        )
+                                                                    }
+                                                                },
+                                                            ),
+                                                    ))
+                                                    .class("xcss-table xcos-log-table")
+                                                    .aria_label(
+                                                        ::leptos::prelude::IntoAttributeValue::into_attribute_value(
+                                                            t("媒体协调操作", "Media reconciliation operations"),
+                                                        ),
+                                                    )
+                                            },
+                                        )
+                                        .class("xcss-table-scroll")
+                                })
+                            })
+                            .build();
+                        props
+                    },
+                )
+            },
+            IntoRender::into_render({
+                move || {
+                    resolution
+                        .get()
+                        .map(|(id, choice, title)| {
+                            View::new({
+    #[allow(unreachable_code)] #[allow(unused_mut)] #[allow(clippy::let_and_return, clippy::let_unit_value, clippy::unit_arg)]
+    component_view(
+        #[allow(clippy::needless_borrows_for_generic_args)]
+        &Confirm,
+        {
+            let mut props = component_props_builder(&Confirm)
+                .title(#[allow(unused_braces)] { title })
+                .description(
+                    #[allow(unused_braces)]
+                    {
+                        t(
+                            "请先核对 MediaMTX 与摄像头的实际状态。此操作只记录人工结论，不会重新执行原媒体操作。",
+                            "Check the actual MediaMTX and camera state first. This only records a manual conclusion and does not rerun the media operation.",
+                        )
+                    },
+                )
+                .close(
+                    #[allow(unused_braces)]
+                    { Callback::new(move |_| resolution.set(None)) },
+                )
+                .accept(
+                    #[allow(unused_braces)]
+                    {
+                        Callback::new(move |_| {
+                            if pending.get_untracked() {
+                                return;
+                            }
+                            pending.set(true);
+                            resolution.set(None);
+                            let id = id.clone();
+                            let choice = choice.clone();
+                            spawn_local(async move {
+                                let result = command(
+                                        &format!("/media/operations/{id}/resolve"),
+                                        "POST",
+                                        Some(json!({ "resolution" : choice })),
+                                    )
+                                    .await;
+                                if pending.is_disposed() {
+                                    return;
+                                }
+                                pending.set(false);
+                                match result {
+                                    Ok(()) => {
+                                        changed.run(());
+                                        app.toast(
+                                            t(
+                                                "人工结论已记录；原媒体操作不会重新执行",
+                                                "The manual conclusion was recorded; the media operation was not rerun",
+                                            ),
+                                        )
+                                    }
+                                    Err(e) => error.set(Some(e)),
+                                }
+                            });
+                        })
+                    },
+                )
+                .build();
+            props
+        },
+    )
+})
+                        })
+                }
+            }),
+        ))
+        .class("xcss-content-stack")
+        .aria_label(
+            ::leptos::prelude::IntoAttributeValue::into_attribute_value(
+                t("媒体协调操作", "Media reconciliation operations"),
+            ),
+        ),
+)
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -346,7 +1713,175 @@ fn DateRange(
     });
     let validation = Memo::new(move |_| validate(&draft.get()));
     Effect::new(move |_| valid.set(validation.get().range.is_some()));
-    view! {<div id="xcos-log-date" class="xcss-date-range"><div class="xcss-date-range-fields">{(0..2).map(move|endpoint|view!{<span class="xcss-date-range-endpoint">{(0..3).map(move|part|{let index=endpoint*3+part;let id=format!("xcos-log-date-{}-{}",if endpoint==0{"start"}else{"end"},["year","month","day"][part]);view!{<span class="xcss-date-range-part"><input id=id class="xcss-date-range-number" type="text" inputmode="numeric" size=if part==0{4}else{2} maxlength=if part==0{4}else{2} aria-label=format!("{} {}",if endpoint==0{t("开始","Start")}else{t("结束","End")},[t("年","year"),t("月","month"),t("日","day")][part]) aria-invalid=move||if range.get().is_some()&&validation.get().invalid[index]{Some("true")}else{None} disabled=move||range.get().is_none() prop:value=move||draft.get()[index].clone() on:input=move|event|draft.update(|v|v[index]=event_target_value(&event)) on:keydown=move|event:web_sys::KeyboardEvent|{if event.key()=="Enter"&&!event.is_composing(){event.prevent_default();if let Some(range)=validation.get_untracked().range{apply.run(range);}}}/>{(part<2).then(||view!{<span class="xcss-date-range-separator">"/"</span>})}</span>}}).collect_view()}{(endpoint==0).then(||view!{<span class="xcss-date-range-separator">"–"</span>})}</span>}).collect_view()}</div><Show when=move||range.get().is_some()&&validation.get().range.is_none()><p class="xcss-date-range-error" role="alert">{move||if validation.get().reversed{t("结束日期不能早于开始日期。","The end date cannot be earlier than the start date.")}else{t("请输入有效的年月日。","Enter a valid year, month, and day.")}}</p></Show></div>}
+    View::new(
+    leptos::html::div()
+        .child((
+            leptos::html::div()
+                .child(
+                    #[allow(unused_braces)]
+                    {
+                        IntoRender::into_render({
+                            (0..2)
+                                .map(move |endpoint| {
+                                    View::new(
+    leptos::html::span()
+        .child((
+            IntoRender::into_render({
+                (0..3)
+                    .map(move |part| {
+                        let index = endpoint * 3 + part;
+                        let id = format!(
+                            "xcos-log-date-{}-{}", if endpoint == 0 { "start" } else {
+                            "end" }, ["year", "month", "day"] [part]
+                        );
+                        View::new(
+    leptos::html::span()
+        .child((
+            leptos::html::input()
+                .class("xcss-date-range-number")
+                .id(::leptos::prelude::IntoAttributeValue::into_attribute_value(id))
+                .r#type("text")
+                .inputmode("numeric")
+                .size(
+                    ::leptos::prelude::IntoAttributeValue::into_attribute_value(
+                        if part == 0 { 4 } else { 2 },
+                    ),
+                )
+                .maxlength(
+                    ::leptos::prelude::IntoAttributeValue::into_attribute_value(
+                        if part == 0 { 4 } else { 2 },
+                    ),
+                )
+                .aria_label(
+                    ::leptos::prelude::IntoAttributeValue::into_attribute_value(
+                        format!(
+                            "{} {}", if endpoint == 0 { t("开始", "Start") } else {
+                            t("结束", "End") }, [t("年", "year"), t("月", "month"),
+                            t("日", "day")] [part]
+                        ),
+                    ),
+                )
+                .aria_invalid(
+                    ::leptos::prelude::IntoAttributeValue::into_attribute_value(move ||
+                    {
+                        if range.get().is_some() && validation.get().invalid[index] {
+                            Some("true")
+                        } else {
+                            None
+                        }
+                    }),
+                )
+                .disabled(
+                    ::leptos::prelude::IntoAttributeValue::into_attribute_value(move ||
+                    range.get().is_none()),
+                )
+                .prop("value", move || draft.get()[index].clone())
+                .on(
+                    leptos::ev::input,
+                    move |event| {
+                        draft.update(|v| v[index] = event_target_value(&event))
+                    },
+                )
+                .on(
+                    leptos::ev::keydown,
+                    move |event: web_sys::KeyboardEvent| {
+                        if event.key() == "Enter" && !event.is_composing() {
+                            event.prevent_default();
+                            if let Some(range) = validation.get_untracked().range {
+                                apply.run(range);
+                            }
+                        }
+                    },
+                ),
+            IntoRender::into_render({
+                (part < 2)
+                    .then(|| {
+                        View::new(
+    leptos::html::span()
+        .child(#[allow(unused_braces)] { "/" })
+        .class("xcss-date-range-separator"),
+)
+                    })
+            }),
+        ))
+        .class("xcss-date-range-part"),
+)
+                    })
+                    .collect_view()
+            }),
+            IntoRender::into_render({
+                (endpoint == 0)
+                    .then(|| {
+                        View::new(
+    leptos::html::span()
+        .child(#[allow(unused_braces)] { "–" })
+        .class("xcss-date-range-separator"),
+)
+                    })
+            }),
+        ))
+        .class("xcss-date-range-endpoint"),
+)
+                                })
+                                .collect_view()
+                        })
+                    },
+                )
+                .class("xcss-date-range-fields"),
+            {
+                #[allow(unreachable_code)] #[allow(unused_mut)]
+                #[allow(clippy::let_and_return, clippy::let_unit_value, clippy::unit_arg)]
+                component_view(
+                    #[allow(clippy::needless_borrows_for_generic_args)]
+                    &Show,
+                    {
+                        let mut props = component_props_builder(
+                                &Show,
+                            )
+                            .when(
+                                #[allow(unused_braces)]
+                                {
+                                    move || {
+                                        range.get().is_some() && validation.get().range.is_none()
+                                    }
+                                },
+                            )
+                            .children({
+                                ::leptos::children::ToChildren::to_children(move || {
+                                    leptos::html::p()
+                                        .child(
+                                            #[allow(unused_braces)]
+                                            {
+                                                IntoRender::into_render({
+                                                    move || {
+                                                        if validation.get().reversed {
+                                                            t(
+                                                                "结束日期不能早于开始日期。",
+                                                                "The end date cannot be earlier than the start date.",
+                                                            )
+                                                        } else {
+                                                            t(
+                                                                "请输入有效的年月日。",
+                                                                "Enter a valid year, month, and day.",
+                                                            )
+                                                        }
+                                                    }
+                                                })
+                                            },
+                                        )
+                                        .class("xcss-date-range-error")
+                                        .role("alert")
+                                })
+                            })
+                            .build();
+                        props
+                    },
+                )
+            },
+        ))
+        .class("xcss-date-range")
+        .id("xcos-log-date"),
+)
 }
 #[cfg(test)]
 mod tests {

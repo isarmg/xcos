@@ -1,4 +1,5 @@
 use crate::{AppState, CameraStatus, Failure, Observation, media::LiveVideo, model::*};
+use leptos::component::{component_props_builder, component_view};
 use leptos::prelude::*;
 use serde_json::json;
 use std::{
@@ -188,22 +189,566 @@ pub fn CameraDrawer(id: String, close: Callback<()>) -> impl IntoView {
             }
         });
     });
-    let movement = move |vector: [f64; 3],
-                         zh: &'static str,
-                         en: &'static str,
-                         glyph: &'static str| {
-        view! {<button class="xcss-button" aria-label=t(zh,en)
-               on:pointerdown=move|e:web_sys::PointerEvent|{if e.button()!=0{return}
-        if let Some(target)=e.current_target().and_then(|v|v.dyn_into::<web_sys::HtmlElement>().ok()){let _=target.set_pointer_capture(e.pointer_id());}ptz.try_with_value(|p|p.start(vector));}
-               on:pointerup=move |_|{ptz.try_with_value(|p|p.stop());} on:pointercancel=move |_|{ptz.try_with_value(|p|p.stop());} on:lostpointercapture=move |_|{ptz.try_with_value(|p|p.stop());} on:blur=move |_|{ptz.try_with_value(|p|p.stop());}
-               on:keydown=move|e:web_sys::KeyboardEvent|{if e.key()==" "||e.key()=="Enter"{e.prevent_default();if !e.repeat(){ptz.try_with_value(|p|p.start(vector));}}}
-               on:keyup=move|e:web_sys::KeyboardEvent|{if e.key()==" "||e.key()=="Enter"{e.prevent_default();ptz.try_with_value(|p|p.stop());}}>{match glyph{"−"=>t("− 拉远","− Zoom out"),"＋"=>t("＋ 拉近","+ Zoom in"),_=>glyph.to_string()}}</button>}
-    };
-    view! {<dialog node_ref=dialog on:cancel=move|event:web_sys::Event|{event.prevent_default();ptz.try_with_value(|p|p.stop());close.try_run(());} class="xcss-dialog xcos-camera-dialog" aria-modal="true" aria-label=move||camera.get().map(|c|c.name).unwrap_or_default()><header class="xcss-dialog-heading"><h2>{move||camera.get().map(|c|c.name)}</h2><button class="xcss-button" aria-label=t("关闭","Close") on:click=move |_|{ptz.try_with_value(|p|p.stop());close.try_run(());}>"×"</button></header><p>{move||camera.get().map(|c|if c.location.is_empty(){t("未标注位置","Location not specified")}else{c.location})}</p><div class="xcos-business">
-        <For each=move||camera.get().map(|c|vec![(c.id,c.enabled)]).unwrap_or_default() key=|v|v.clone() children=move|_|view!{<LiveVideo camera=camera.get_untracked().unwrap() controls=true/>}/>
-        <section class="xcss-content-panel"><h3>{t("设备信息","Device information")}</h3><CameraStatus camera=camera/><Observation camera=camera/><p>{move||camera.get().map(|c|{let text=[c.manufacturer,c.model,c.firmware_version].into_iter().flatten().collect::<Vec<_>>().join(" · ");if text.is_empty(){t("设备未报告厂商信息","The device did not report make information")}else{text}})}</p><p>{t("适配器","Adapter")}": "{move||camera.get().map(|c|c.adapter_kind.to_uppercase())}" · "{t("能力","Capabilities")}": "{move||camera.get().map(|c|{[("video",t("视频","Video"),c.capabilities.video),("sub",t("子码流","Sub-stream"),c.capabilities.sub_stream),("ptz","PTZ".into(),c.capabilities.ptz),("events",t("事件","Events"),c.capabilities.events),("audio",t("音频","Audio"),c.capabilities.audio_input)].into_iter().map(|(_,label,state)|match state.as_str(){"supported"=>label,"unknown"=>format!("{}: {}",label,t("未确认","unconfirmed")),_=>format!("{}: {}",label,t("不支持","unsupported"))}).collect::<Vec<_>>().join(" / ")})}</p><Show when=move||camera.get().is_some_and(|c|c.health_message.is_some())><p>{t("健康状态","Health")}": "{move||camera.get().and_then(|c|c.health_message)}</p></Show></section>
-        <Show when=move||camera.get().is_some_and(|c|c.capabilities.ptz=="supported")><section class="ptz-panel" aria-label=t("云台控制","PTZ controls")><h3>{t("云台控制","PTZ controls")}</h3><p>{t("按住方向键或用空格、回车启动移动，松开即停止。窗口失焦也会发送停止。","Hold a direction button, Space or Enter to move; release to stop. Losing window focus also sends a stop command.")}</p><Show when=move||receipt.get().is_some()&&error.get().is_none()><p role="status">{move||receipt.get().map(|r|match r.state.as_str(){"queued"=>t("已排队，尚未发送到设备","Queued; not yet sent to the device"),"awaiting_result"=>t("已发送，等待设备回执","Sent; waiting for the device result"),"succeeded"=>t("设备已确认执行","The device confirmed execution"),"failed"=>t("设备命令执行失败","Device command failed"),"expired"=>t("命令在发送前已过期","Command expired before delivery"),_=>t("设备执行结果未确认","Device execution remains unconfirmed")})}</p></Show><Failure error=error/><Show when=move||error.get().is_some()><button class="xcss-button" on:click=move |_|version.update(|v|*v+=1)>{t("重试状态查询","Retry status lookup")}</button></Show>
-        <div class="ptz-grid"><span/>{movement([0.,0.55,0.],"云台向上","Tilt up","↑")}<span/>{movement([-0.55,0.,0.],"云台向左","Pan left","←")}<button class="xcss-button" aria-label=t("停止云台","Stop movement") on:click=move |_|{ptz.try_with_value(|p|p.explicit_stop());}>"■"</button>{movement([0.55,0.,0.],"云台向右","Pan right","→")}<span/>{movement([0.,-0.55,0.],"云台向下","Tilt down","↓")}<span/></div><div class="zoom-row">{movement([0.,0.,-0.45],"云台拉远","Zoom out","−")}{movement([0.,0.,0.45],"云台拉近","Zoom in","＋")}</div>
-        </section></Show>
-    </div></dialog>}
+    let movement =
+        move |vector: [f64; 3], zh: &'static str, en: &'static str, glyph: &'static str| {
+            View::new(
+                leptos::html::button()
+                    .child(
+                        #[allow(unused_braces)]
+                        {
+                            IntoRender::into_render({
+                                match glyph {
+                                    "−" => t("− 拉远", "− Zoom out"),
+                                    "＋" => t("＋ 拉近", "+ Zoom in"),
+                                    _ => glyph.to_string(),
+                                }
+                            })
+                        },
+                    )
+                    .class("xcss-button")
+                    .aria_label(::leptos::prelude::IntoAttributeValue::into_attribute_value(
+                        t(zh, en),
+                    ))
+                    .on(leptos::ev::pointerdown, move |e: web_sys::PointerEvent| {
+                        if e.button() != 0 {
+                            return;
+                        }
+                        if let Some(target) = e
+                            .current_target()
+                            .and_then(|v| v.dyn_into::<web_sys::HtmlElement>().ok())
+                        {
+                            let _ = target.set_pointer_capture(e.pointer_id());
+                        }
+                        ptz.try_with_value(|p| p.start(vector));
+                    })
+                    .on(leptos::ev::pointerup, move |_| {
+                        ptz.try_with_value(|p| p.stop());
+                    })
+                    .on(leptos::ev::pointercancel, move |_| {
+                        ptz.try_with_value(|p| p.stop());
+                    })
+                    .on(leptos::ev::lostpointercapture, move |_| {
+                        ptz.try_with_value(|p| p.stop());
+                    })
+                    .on(leptos::ev::blur, move |_| {
+                        ptz.try_with_value(|p| p.stop());
+                    })
+                    .on(leptos::ev::keydown, move |e: web_sys::KeyboardEvent| {
+                        if e.key() == " " || e.key() == "Enter" {
+                            e.prevent_default();
+                            if !e.repeat() {
+                                ptz.try_with_value(|p| p.start(vector));
+                            }
+                        }
+                    })
+                    .on(leptos::ev::keyup, move |e: web_sys::KeyboardEvent| {
+                        if e.key() == " " || e.key() == "Enter" {
+                            e.prevent_default();
+                            ptz.try_with_value(|p| p.stop());
+                        }
+                    }),
+            )
+        };
+    View::new(
+    leptos::html::dialog()
+        .child((
+            leptos::html::header()
+                .child((
+                    leptos::html::h2()
+                        .child(
+                            #[allow(unused_braces)]
+                            {
+                                IntoRender::into_render({
+                                    move || camera.get().map(|c| c.name)
+                                })
+                            },
+                        ),
+                    leptos::html::button()
+                        .child(#[allow(unused_braces)] { "×" })
+                        .class("xcss-button")
+                        .aria_label(
+                            ::leptos::prelude::IntoAttributeValue::into_attribute_value(
+                                t("关闭", "Close"),
+                            ),
+                        )
+                        .on(
+                            leptos::ev::click,
+                            move |_| {
+                                ptz.try_with_value(|p| p.stop());
+                                close.try_run(());
+                            },
+                        ),
+                ))
+                .class("xcss-dialog-heading"),
+            leptos::html::p()
+                .child(
+                    #[allow(unused_braces)]
+                    {
+                        IntoRender::into_render({
+                            move || {
+                                camera
+                                    .get()
+                                    .map(|c| {
+                                        if c.location.is_empty() {
+                                            t("未标注位置", "Location not specified")
+                                        } else {
+                                            c.location
+                                        }
+                                    })
+                            }
+                        })
+                    },
+                ),
+            leptos::html::div()
+                .child((
+                    {
+                        #[allow(unreachable_code)] #[allow(unused_mut)]
+                        #[allow(clippy::let_and_return, clippy::let_unit_value, clippy::unit_arg)]
+                        component_view(
+                            #[allow(clippy::needless_borrows_for_generic_args)]
+                            &For,
+                            {
+                                let mut props = component_props_builder(
+                                        &For,
+                                    )
+                                    .each(
+                                        #[allow(unused_braces)]
+                                        {
+                                            move || {
+                                                camera
+                                                    .get()
+                                                    .map(|c| vec![(c.id, c.enabled)])
+                                                    .unwrap_or_default()
+                                            }
+                                        },
+                                    )
+                                    .key(#[allow(unused_braces)] { |v| v.clone() })
+                                    .children(
+                                        #[allow(unused_braces)]
+                                        {
+                                            move |_| {
+                                                View::new({
+    #[allow(unreachable_code)] #[allow(unused_mut)] #[allow(clippy::let_and_return, clippy::let_unit_value, clippy::unit_arg)]
+    component_view(
+        #[allow(clippy::needless_borrows_for_generic_args)]
+        &LiveVideo,
+        {
+            let mut props = component_props_builder(&LiveVideo)
+                .camera(#[allow(unused_braces)] { camera.get_untracked().unwrap() })
+                .controls(#[allow(unused_braces)] { true })
+                .build();
+            props
+        },
+    )
+})
+                                            }
+                                        },
+                                    )
+                                    .build();
+                                props
+                            },
+                        )
+                    },
+                    leptos::html::section()
+                        .child((
+                            leptos::html::h3()
+                                .child(
+                                    #[allow(unused_braces)]
+                                    {
+                                        IntoRender::into_render({
+                                            t("设备信息", "Device information")
+                                        })
+                                    },
+                                ),
+                            {
+                                #[allow(unreachable_code)] #[allow(unused_mut)]
+                                #[allow(clippy::let_and_return, clippy::let_unit_value, clippy::unit_arg)]
+                                component_view(
+                                    #[allow(clippy::needless_borrows_for_generic_args)]
+                                    &CameraStatus,
+                                    {
+                                        let mut props = component_props_builder(
+                                                &CameraStatus,
+                                            )
+                                            .camera(#[allow(unused_braces)] { camera })
+                                            .build();
+                                        props
+                                    },
+                                )
+                            },
+                            {
+                                #[allow(unreachable_code)] #[allow(unused_mut)]
+                                #[allow(clippy::let_and_return, clippy::let_unit_value, clippy::unit_arg)]
+                                component_view(
+                                    #[allow(clippy::needless_borrows_for_generic_args)]
+                                    &Observation,
+                                    {
+                                        let mut props = component_props_builder(
+                                                &Observation,
+                                            )
+                                            .camera(#[allow(unused_braces)] { camera })
+                                            .build();
+                                        props
+                                    },
+                                )
+                            },
+                            leptos::html::p()
+                                .child(
+                                    #[allow(unused_braces)]
+                                    {
+                                        IntoRender::into_render({
+                                            move || {
+                                                camera
+                                                    .get()
+                                                    .map(|c| {
+                                                        let text = [c.manufacturer, c.model, c.firmware_version]
+                                                            .into_iter()
+                                                            .flatten()
+                                                            .collect::<Vec<_>>()
+                                                            .join(" · ");
+                                                        if text.is_empty() {
+                                                            t(
+                                                                "设备未报告厂商信息",
+                                                                "The device did not report make information",
+                                                            )
+                                                        } else {
+                                                            text
+                                                        }
+                                                    })
+                                            }
+                                        })
+                                    },
+                                ),
+                            leptos::html::p()
+                                .child((
+                                    IntoRender::into_render({
+                                        t("适配器", "Adapter")
+                                    }),
+                                    ": ",
+                                    IntoRender::into_render({
+                                        move || camera.get().map(|c| c.adapter_kind.to_uppercase())
+                                    }),
+                                    " · ",
+                                    IntoRender::into_render({
+                                        t("能力", "Capabilities")
+                                    }),
+                                    ": ",
+                                    IntoRender::into_render({
+                                        move || {
+                                            camera
+                                                .get()
+                                                .map(|c| {
+                                                    [
+                                                        ("video", t("视频", "Video"), c.capabilities.video),
+                                                        (
+                                                            "sub",
+                                                            t("子码流", "Sub-stream"),
+                                                            c.capabilities.sub_stream,
+                                                        ),
+                                                        ("ptz", "PTZ".into(), c.capabilities.ptz),
+                                                        ("events", t("事件", "Events"), c.capabilities.events),
+                                                        ("audio", t("音频", "Audio"), c.capabilities.audio_input),
+                                                    ]
+                                                        .into_iter()
+                                                        .map(|(_, label, state)| match state.as_str() {
+                                                            "supported" => label,
+                                                            "unknown" => {
+                                                                format!("{}: {}", label, t("未确认", "unconfirmed"))
+                                                            }
+                                                            _ => format!("{}: {}", label, t("不支持", "unsupported")),
+                                                        })
+                                                        .collect::<Vec<_>>()
+                                                        .join(" / ")
+                                                })
+                                        }
+                                    }),
+                                )),
+                            {
+                                #[allow(unreachable_code)] #[allow(unused_mut)]
+                                #[allow(clippy::let_and_return, clippy::let_unit_value, clippy::unit_arg)]
+                                component_view(
+                                    #[allow(clippy::needless_borrows_for_generic_args)]
+                                    &Show,
+                                    {
+                                        let mut props = component_props_builder(
+                                                &Show,
+                                            )
+                                            .when(
+                                                #[allow(unused_braces)]
+                                                {
+                                                    move || {
+                                                        camera.get().is_some_and(|c| c.health_message.is_some())
+                                                    }
+                                                },
+                                            )
+                                            .children({
+                                                ::leptos::children::ToChildren::to_children(move || {
+                                                    leptos::html::p()
+                                                        .child((
+                                                            IntoRender::into_render({
+                                                                t("健康状态", "Health")
+                                                            }),
+                                                            ": ",
+                                                            IntoRender::into_render({
+                                                                move || camera.get().and_then(|c| c.health_message)
+                                                            }),
+                                                        ))
+                                                })
+                                            })
+                                            .build();
+                                        props
+                                    },
+                                )
+                            },
+                        ))
+                        .class("xcss-content-panel"),
+                    {
+                        #[allow(unreachable_code)] #[allow(unused_mut)]
+                        #[allow(clippy::let_and_return, clippy::let_unit_value, clippy::unit_arg)]
+                        component_view(
+                            #[allow(clippy::needless_borrows_for_generic_args)]
+                            &Show,
+                            {
+                                let mut props = component_props_builder(
+                                        &Show,
+                                    )
+                                    .when(
+                                        #[allow(unused_braces)]
+                                        {
+                                            move || {
+                                                camera
+                                                    .get()
+                                                    .is_some_and(|c| c.capabilities.ptz == "supported")
+                                            }
+                                        },
+                                    )
+                                    .children({
+                                        ::leptos::children::ToChildren::to_children(move || {
+                                            leptos::html::section()
+                                                .child((
+                                                    leptos::html::h3()
+                                                        .child(
+                                                            #[allow(unused_braces)]
+                                                            {
+                                                                IntoRender::into_render({
+                                                                    t("云台控制", "PTZ controls")
+                                                                })
+                                                            },
+                                                        ),
+                                                    leptos::html::p()
+                                                        .child(
+                                                            #[allow(unused_braces)]
+                                                            {
+                                                                IntoRender::into_render({
+                                                                    t(
+                                                                        "按住方向键或用空格、回车启动移动，松开即停止。窗口失焦也会发送停止。",
+                                                                        "Hold a direction button, Space or Enter to move; release to stop. Losing window focus also sends a stop command.",
+                                                                    )
+                                                                })
+                                                            },
+                                                        ),
+                                                    {
+                                                        #[allow(unreachable_code)] #[allow(unused_mut)]
+                                                        #[allow(clippy::let_and_return, clippy::let_unit_value, clippy::unit_arg)]
+                                                        component_view(
+                                                            #[allow(clippy::needless_borrows_for_generic_args)]
+                                                            &Show,
+                                                            {
+                                                                let mut props = component_props_builder(
+                                                                        &Show,
+                                                                    )
+                                                                    .when(
+                                                                        #[allow(unused_braces)]
+                                                                        { move || receipt.get().is_some() && error.get().is_none() },
+                                                                    )
+                                                                    .children({
+                                                                        ::leptos::children::ToChildren::to_children(move || {
+                                                                            leptos::html::p()
+                                                                                .child(
+                                                                                    #[allow(unused_braces)]
+                                                                                    {
+                                                                                        IntoRender::into_render({
+                                                                                            move || {
+                                                                                                receipt
+                                                                                                    .get()
+                                                                                                    .map(|r| match r.state.as_str() {
+                                                                                                        "queued" => {
+                                                                                                            t(
+                                                                                                                "已排队，尚未发送到设备",
+                                                                                                                "Queued; not yet sent to the device",
+                                                                                                            )
+                                                                                                        }
+                                                                                                        "awaiting_result" => {
+                                                                                                            t(
+                                                                                                                "已发送，等待设备回执",
+                                                                                                                "Sent; waiting for the device result",
+                                                                                                            )
+                                                                                                        }
+                                                                                                        "succeeded" => {
+                                                                                                            t("设备已确认执行", "The device confirmed execution")
+                                                                                                        }
+                                                                                                        "failed" => {
+                                                                                                            t("设备命令执行失败", "Device command failed")
+                                                                                                        }
+                                                                                                        "expired" => {
+                                                                                                            t(
+                                                                                                                "命令在发送前已过期",
+                                                                                                                "Command expired before delivery",
+                                                                                                            )
+                                                                                                        }
+                                                                                                        _ => {
+                                                                                                            t(
+                                                                                                                "设备执行结果未确认",
+                                                                                                                "Device execution remains unconfirmed",
+                                                                                                            )
+                                                                                                        }
+                                                                                                    })
+                                                                                            }
+                                                                                        })
+                                                                                    },
+                                                                                )
+                                                                                .role("status")
+                                                                        })
+                                                                    })
+                                                                    .build();
+                                                                props
+                                                            },
+                                                        )
+                                                    },
+                                                    {
+                                                        #[allow(unreachable_code)] #[allow(unused_mut)]
+                                                        #[allow(clippy::let_and_return, clippy::let_unit_value, clippy::unit_arg)]
+                                                        component_view(
+                                                            #[allow(clippy::needless_borrows_for_generic_args)]
+                                                            &Failure,
+                                                            {
+                                                                let mut props = component_props_builder(
+                                                                        &Failure,
+                                                                    )
+                                                                    .error(#[allow(unused_braces)] { error })
+                                                                    .build();
+                                                                props
+                                                            },
+                                                        )
+                                                    },
+                                                    {
+                                                        #[allow(unreachable_code)] #[allow(unused_mut)]
+                                                        #[allow(clippy::let_and_return, clippy::let_unit_value, clippy::unit_arg)]
+                                                        component_view(
+                                                            #[allow(clippy::needless_borrows_for_generic_args)]
+                                                            &Show,
+                                                            {
+                                                                let mut props = component_props_builder(
+                                                                        &Show,
+                                                                    )
+                                                                    .when(
+                                                                        #[allow(unused_braces)]
+                                                                        { move || error.get().is_some() },
+                                                                    )
+                                                                    .children({
+                                                                        ::leptos::children::ToChildren::to_children(move || {
+                                                                            leptos::html::button()
+                                                                                .child(
+                                                                                    #[allow(unused_braces)]
+                                                                                    {
+                                                                                        IntoRender::into_render({
+                                                                                            t("重试状态查询", "Retry status lookup")
+                                                                                        })
+                                                                                    },
+                                                                                )
+                                                                                .class("xcss-button")
+                                                                                .on(
+                                                                                    leptos::ev::click,
+                                                                                    move |_| version.update(|v| *v += 1),
+                                                                                )
+                                                                        })
+                                                                    })
+                                                                    .build();
+                                                                props
+                                                            },
+                                                        )
+                                                    },
+                                                    leptos::html::div()
+                                                        .child((
+                                                            leptos::html::span(),
+                                                            IntoRender::into_render({
+                                                                movement([0., 0.55, 0.], "云台向上", "Tilt up", "↑")
+                                                            }),
+                                                            leptos::html::span(),
+                                                            IntoRender::into_render({
+                                                                movement([-0.55, 0., 0.], "云台向左", "Pan left", "←")
+                                                            }),
+                                                            leptos::html::button()
+                                                                .child(#[allow(unused_braces)] { "■" })
+                                                                .class("xcss-button")
+                                                                .aria_label(
+                                                                    ::leptos::prelude::IntoAttributeValue::into_attribute_value(
+                                                                        t("停止云台", "Stop movement"),
+                                                                    ),
+                                                                )
+                                                                .on(
+                                                                    leptos::ev::click,
+                                                                    move |_| {
+                                                                        ptz.try_with_value(|p| p.explicit_stop());
+                                                                    },
+                                                                ),
+                                                            IntoRender::into_render({
+                                                                movement([0.55, 0., 0.], "云台向右", "Pan right", "→")
+                                                            }),
+                                                            leptos::html::span(),
+                                                            IntoRender::into_render({
+                                                                movement(
+                                                                    [0., -0.55, 0.],
+                                                                    "云台向下",
+                                                                    "Tilt down",
+                                                                    "↓",
+                                                                )
+                                                            }),
+                                                            leptos::html::span(),
+                                                        ))
+                                                        .class("ptz-grid"),
+                                                    leptos::html::div()
+                                                        .child((
+                                                            IntoRender::into_render({
+                                                                movement([0., 0., -0.45], "云台拉远", "Zoom out", "−")
+                                                            }),
+                                                            IntoRender::into_render({
+                                                                movement([0., 0., 0.45], "云台拉近", "Zoom in", "＋")
+                                                            }),
+                                                        ))
+                                                        .class("zoom-row"),
+                                                ))
+                                                .class("ptz-panel")
+                                                .aria_label(
+                                                    ::leptos::prelude::IntoAttributeValue::into_attribute_value(
+                                                        t("云台控制", "PTZ controls"),
+                                                    ),
+                                                )
+                                        })
+                                    })
+                                    .build();
+                                props
+                            },
+                        )
+                    },
+                ))
+                .class("xcos-business"),
+        ))
+        .class("xcss-dialog xcos-camera-dialog")
+        .node_ref(dialog)
+        .on(
+            leptos::ev::Custom::new("cancel"),
+            move |event: web_sys::Event| {
+                event.prevent_default();
+                ptz.try_with_value(|p| p.stop());
+                close.try_run(());
+            },
+        )
+        .aria_modal("true")
+        .aria_label(
+            ::leptos::prelude::IntoAttributeValue::into_attribute_value(move || {
+                camera.get().map(|c| c.name).unwrap_or_default()
+            }),
+        ),
+)
 }

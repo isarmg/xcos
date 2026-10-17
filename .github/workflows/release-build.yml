@@ -66,8 +66,6 @@ jobs:
         with:
           node-version: 26.7.0
           check-latest: false
-      - name: Install locked Web dependencies
-        run: npm ci --prefix web
       - name: Build and verify the Server archive and SHA-256 inventory
         shell: bash
         run: |

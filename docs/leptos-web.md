@@ -1,5 +1,7 @@
 # Leptos 管理前端维护
 
+当前构建入口已更新为 [Rust 原生 Web 构建与测试](rust-native-web.md)。以下保留首次 Leptos 迁移时的流程与验证记录。
+
 管理界面的新实现位于 `web/leptos/`，使用 Rust、Leptos 0.8.19 和浏览器 WASM；服务端保留 Axum，并兼容既有 HTTP API、管理员 Cookie/CSRF、客户端配对、媒体授权和数据库合同；可按 WASM 加载、缓存与响应需要配合优化。它采用 CSR，不会将摄像头解码或媒体转发搬入 Axum。
 
 分支约定：`main` 保留 React 实现，本文所述 Leptos CSR 实现在 `feat/leptos-migration`。构建与验收需先切换到该分支；合并、发行和线上部署按后续明确安排执行。

@@ -1,0 +1,23 @@
+[web]
+kind = "spa"
+entry = "src/main.js"
+dist = "web/dist"
+base = "/"
+
+[web.proxies]
+"/api/v1" = "http://127.0.0.1:18106"
+"/healthz" = "http://127.0.0.1:18106"
+"/readyz" = "http://127.0.0.1:18106"
+"/media-webrtc" = "http://127.0.0.1:8889/"
+"/media-hls" = "http://127.0.0.1:8888/"
+
+[aliases]
+"@xcss/web/" = "vendor/xcss/"
+"hls.js" = "vendor/hls/hls.mjs"
+
+# Preserve original notices in standalone dist as well as release receipts.
+[web.copies]
+"assets/LICENSE-leptos-MIT.txt" = "leptos/vendor/xcss-web/vendor/leptos-csr/LICENSE"
+"assets/LICENSE-leptos-macro-MIT.txt" = "leptos/vendor/xcss-web/vendor/leptos-macro-csr/LICENSE"
+"assets/LICENSE-xcss-Apache-2.0.txt" = "vendor/xcss/LICENSE"
+"assets/LICENSE-hls-Apache-2.0.txt" = "vendor/hls/LICENSE"

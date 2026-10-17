@@ -1,0 +1,22 @@
+{
+  "files": {
+    "LICENSE": "ca8773cf798c7ed997d4dd7c8e23c348699f8d5b7462636694cc14de6cda12db",
+    "hls.mjs": "97cf7a2479752af42ab5bdaf98f150460a69c9c409dbfc0c571d233bf7218465"
+  },
+  "format": 1,
+  "license": "Apache-2.0",
+  "npm": {
+    "archive_files": {
+      "LICENSE": "LICENSE",
+      "hls.mjs": "dist/hls.mjs"
+    },
+    "integrity": "sha512-hNEzjZNHf5bFrUNvdS4/1RjIanuJ6szpWNfTaX5I6WfGynWXGT7K/YQLYtemSvFExzeMdgdE4SsyVLJbd5PcZA==",
+    "license": "Apache-2.0",
+    "name": "hls.js",
+    "resolved": "https://registry.npmjs.org/hls.js/-/hls.js-1.6.13.tgz",
+    "version": "1.6.13"
+  },
+  "origin": "https://registry.npmjs.org/hls.js/-/hls.js-1.6.13.tgz",
+  "package": "hls.js",
+  "version": "1.6.13"
+}

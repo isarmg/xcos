@@ -1,7 +1,7 @@
 // Runs the default production entry with storage deliberately unavailable.
 import assert from "node:assert/strict";
 import { chromium, firefox, expect } from "@playwright/test";
-import { preview } from "vite";
+import { preview } from '../../tools/web-build/test-preview.mjs';
 
 const session = { authenticated: true, user_id: "A".repeat(43), username: "admin", role: "admin", csrf_token: "A".repeat(43) };
 const server = await preview({ preview: { host: "127.0.0.1", port: 0, strictPort: true } });

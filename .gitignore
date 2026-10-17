@@ -13,3 +13,5 @@
 __pycache__/
 /web/pkg
 /web/leptos/target
+
+/tools/web-build/target/

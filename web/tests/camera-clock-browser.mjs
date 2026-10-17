@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { chromium, firefox, expect } from "@playwright/test";
-import { preview } from "vite";
+import { preview } from '../../tools/web-build/test-preview.mjs';
 
 const id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const session = { authenticated: true, user_id: "A".repeat(43), username: "admin", role: "admin", csrf_token: "A".repeat(43) };

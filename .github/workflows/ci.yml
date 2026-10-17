@@ -89,10 +89,12 @@ jobs:
           python3 scripts/test-leptos-build.py
           npm ci --prefix web
           npm run check:xcss --prefix web
+          cargo +1.99.0 fmt --manifest-path tools/web-build/Cargo.toml -- --check
+          cargo +1.99.0 clippy --manifest-path tools/web-build/Cargo.toml --locked --all-targets -- -D warnings
           cargo +1.99.0 fmt --manifest-path web/leptos/Cargo.toml -- --check
           CARGO_TARGET_DIR=target/leptos cargo +1.99.0 clippy --manifest-path web/leptos/Cargo.toml --locked --target wasm32-unknown-unknown --all-targets --no-deps -- -D warnings
           npm run test:unit --prefix web
-          npm run build --prefix web
+          cargo +1.99.0 run --quiet --locked --manifest-path tools/web-build/Cargo.toml -- build --product-root .
       - name: Install acceptance browsers
         working-directory: web
         run: npx playwright install --with-deps chromium firefox
@@ -153,7 +155,7 @@ jobs:
       - name: Build current Web compilation inputs
         run: |
           npm ci --prefix web
-          web/node_modules/.bin/xcss-build-server --config "$PWD/xcss-web-build.json" --mode development --web-only --no-install
+          cargo +1.99.0 run --quiet --locked --manifest-path tools/web-build/Cargo.toml -- server --product-root . --config "$PWD/xcss-web-build.json" --mode development --web-only
       - name: Check formatting
         run: cargo fmt --all -- --check
       - name: Check all targets
@@ -212,7 +214,7 @@ jobs:
       - name: Build embedded Web inputs for deployment tests
         run: |
           npm ci --prefix web
-          web/node_modules/.bin/xcss-build-server --config "$PWD/xcss-web-build.json" --mode development --web-only --no-install
+          cargo +1.99.0 run --quiet --locked --manifest-path tools/web-build/Cargo.toml -- server --product-root . --config "$PWD/xcss-web-build.json" --mode development --web-only
       - name: Verify systemd controls and release packaging
         run: ./scripts/check-deployment.sh
 
@@ -278,7 +280,7 @@ jobs:
             ~/.cargo/git/db
             target
           # No fallback keys. Only a successful main push saves this cache.
-          key: xcos-installed-release-v1-${{ runner.os }}-${{ runner.arch }}-rust-1.99.0-${{ env.SERVER_TARGET }}-${{ steps.release_environment.outputs.fingerprint }}-${{ hashFiles('Cargo.lock', 'web/leptos/Cargo.lock', 'scripts/build-leptos.py', '**/Cargo.toml', '**/build.rs', '.cargo/**', 'rust-toolchain.toml', 'config/xssi.lock', 'config/mediamtx.lock', 'web/package-lock.json', 'xcss-web-build.json', '.github/workflows/ci.yml') }}
+          key: xcos-installed-release-v1-${{ runner.os }}-${{ runner.arch }}-rust-1.99.0-${{ env.SERVER_TARGET }}-${{ steps.release_environment.outputs.fingerprint }}-${{ hashFiles('Cargo.lock', 'tools/web-build/Cargo.lock', 'tools/web-build/src/**', 'web/rust-web.toml', 'web/vendor/**', 'web/leptos/vendor/**', 'web/leptos/Cargo.lock', 'scripts/build-leptos.py', '**/Cargo.toml', '**/build.rs', '.cargo/**', 'rust-toolchain.toml', 'config/xssi.lock', 'config/mediamtx.lock', 'web/package-lock.json', 'xcss-web-build.json', '.github/workflows/ci.yml') }}
       - name: Discard cached first-party candidate products
         run: |
           cargo clean --package xcos --release --target "$SERVER_TARGET"
@@ -357,8 +359,6 @@ jobs:
         with:
           path: ${{ runner.temp }}/install-media-tools
           key: ${{ steps.media_cache.outputs.cache-primary-key }}
-      - name: Install locked frontend dependencies
-        run: npm ci --prefix web
       - name: Build the source-bound release Server once
         id: release_binary
         env:
@@ -367,7 +367,7 @@ jobs:
           XSSI_FRONTEND_METADATA_FILE: ${{ runner.temp }}/install-metadata/frontend.json
           XCOS_SOURCE_REVISION: ${{ github.sha }}
         run: |
-          web/node_modules/.bin/xcss-build-server --config xcss-web-build.json --mode release --no-install --source-revision "$GITHUB_SHA"
+          cargo +1.99.0 run --quiet --locked --manifest-path tools/web-build/Cargo.toml -- server --product-root . --config xcss-web-build.json --mode release --source-revision "$GITHUB_SHA"
           "$CARGO_TARGET_DIR/$SERVER_TARGET/release/xcos" --version | grep -F 'xcos '
       - name: Save successfully compiled release dependencies
         if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.release_cache.outputs.cache-hit != 'true' && steps.release_binary.outcome == 'success' }}

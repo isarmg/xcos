@@ -1,4 +1,5 @@
 use crate::model::{Camera, Ticket, request};
+use leptos::component::{component_props_builder, component_view};
 use leptos::{html, prelude::*};
 use std::{
     cell::{Cell, RefCell},
@@ -532,7 +533,81 @@ pub fn LiveVideo(
             }
         })
     });
-    view! {<div class=if controls{"detail-video"}else{"video-shell"}><video node_ref=video muted autoplay playsinline controls=controls/><Show when=move||!label.get().is_empty()><div class="video-state">{move||label.get()}</div></Show><Show when=move||!controls><div class="scanline"/></Show></div>}
+    View::new(
+        leptos::html::div()
+            .child((
+                leptos::html::video()
+                    .node_ref(video)
+                    .muted(true)
+                    .autoplay(true)
+                    .playsinline(true)
+                    .controls(::leptos::prelude::IntoAttributeValue::into_attribute_value(
+                        controls,
+                    )),
+                {
+                    #[allow(unreachable_code)]
+                    #[allow(unused_mut)]
+                    #[allow(clippy::let_and_return, clippy::let_unit_value, clippy::unit_arg)]
+                    component_view(
+                        #[allow(clippy::needless_borrows_for_generic_args)]
+                        &Show,
+                        {
+                            let mut props = component_props_builder(&Show)
+                                .when(
+                                    #[allow(unused_braces)]
+                                    {
+                                        move || !label.get().is_empty()
+                                    },
+                                )
+                                .children({
+                                    ::leptos::children::ToChildren::to_children(move || {
+                                        leptos::html::div()
+                                            .child(
+                                                #[allow(unused_braces)]
+                                                {
+                                                    IntoRender::into_render({ move || label.get() })
+                                                },
+                                            )
+                                            .class("video-state")
+                                    })
+                                })
+                                .build();
+                            props
+                        },
+                    )
+                },
+                {
+                    #[allow(unreachable_code)]
+                    #[allow(unused_mut)]
+                    #[allow(clippy::let_and_return, clippy::let_unit_value, clippy::unit_arg)]
+                    component_view(
+                        #[allow(clippy::needless_borrows_for_generic_args)]
+                        &Show,
+                        {
+                            let mut props = component_props_builder(&Show)
+                                .when(
+                                    #[allow(unused_braces)]
+                                    {
+                                        move || !controls
+                                    },
+                                )
+                                .children({
+                                    ::leptos::children::ToChildren::to_children(move || {
+                                        leptos::html::div().class("scanline")
+                                    })
+                                })
+                                .build();
+                            props
+                        },
+                    )
+                },
+            ))
+            .class(if controls {
+                "detail-video"
+            } else {
+                "video-shell"
+            }),
+    )
 }
 
 #[cfg(test)]
