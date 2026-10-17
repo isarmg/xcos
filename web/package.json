@@ -16,7 +16,8 @@
     "test:camera-clock": "npm run build && node tests/camera-clock-browser.mjs",
     "build:server": "cargo +1.99.0 run --quiet --locked --manifest-path ../tools/web-build/Cargo.toml -- server --product-root .. --config xcss-web-build.json --mode development",
     "test:rust": "cargo +1.99.0 run --quiet --locked --manifest-path ../tools/web-build/Cargo.toml -- test --product-root ..",
-    "preview": "cargo +1.99.0 run --quiet --locked --manifest-path ../tools/web-build/Cargo.toml -- preview --product-root .. --bind 127.0.0.1:4173"
+    "preview": "cargo +1.99.0 run --quiet --locked --manifest-path ../tools/web-build/Cargo.toml -- preview --product-root .. --bind 127.0.0.1:4173",
+    "test:startup": "node tests/startup-failure.mjs"
   },
   "devDependencies": {
     "@axe-core/playwright": "4.13.0",

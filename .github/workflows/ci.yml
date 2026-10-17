@@ -101,6 +101,9 @@ jobs:
       - name: Verify business UI and shared platform integration
         working-directory: web
         run: npm run test:browser
+      - name: Verify startup failure visibility and explicit reload
+        working-directory: web
+        run: npm run test:startup
 
   rust:
     needs: scope
