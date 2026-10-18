@@ -133,7 +133,7 @@ pub fn navigate(page: &str) {
 
 #[wasm_bindgen(start)]
 pub fn start() {
-    xcss_web::mount("root", || {
+    xcss_web::mount_server("root", || {
         View::new({
             #[allow(unreachable_code)]
             #[allow(unused_mut)]
