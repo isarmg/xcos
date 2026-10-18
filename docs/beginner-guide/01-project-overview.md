@@ -43,11 +43,11 @@ credential key 身份。原始key必须独立受保护，不能写入数据库�
 src/          Rust API、认证、状态、reconciler、release
 web/  xcss-web/WASM 控制台
 config/       JSON/环境样例、MediaMTX 配置和固定制品合同
-deploy/       systemd units 与薄 systemctl 封装
-deploy/       MediaMTX 生命周期和主机部署资产
 scripts/      构建、打包和检查入口
 docs/         教程、流程、取舍和运维
 ```
+
+systemd 单元、安装维护入口和 MediaMTX 生命周期材料由固定 xssi 修订及本仓库导出的安装定义统一生成。
 
 ## 1.7 明确不做
 

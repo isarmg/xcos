@@ -8,9 +8,9 @@
 队列回归使用 `npm run test:unit --prefix web`，页面交互使用 `npm run test:browser --prefix web` 验证。
 
 ```text
-xcos 1.0.0
+xcos
 ├─ 构建
-│  ├─ Node 26.7.0 -> check:xcss -> Rust / xcss-web WASM -> wasm-bindgen -> Vite 8
+│  ├─ Rust tools/web-build -> xcss-web WASM -> wasm-bindgen -> 带摘要的静态资源
 │  ├─ Rust 1.99.0 -> x86_64-unknown-linux-gnu binary
 │  └─ Web、Rust、MediaMTX、配置 -> 不可变 release manifest
 ├─ 启动
@@ -44,8 +44,7 @@ xcos 1.0.0
 `x86_64-unknown-linux-gnu`，没有其他架构、OS 或 libc 的正式构建分支。脚本构建 Web 和 source-bound
 Rust binary，生成完整 manifest，在同一文件系统暂存并验证后，以 no-clobber 语义生成显式指定的 staging 目录，不启动服务。
 
-按[安装指南](getting-started.md)建立普通 `isarmg-xcos` UID、私有 JSON 和独立状态目录，以同一 UID
-从 stdin 执行 `init --username admin`，再执行离线 `config validate`。这些步骤不依赖 `/run`。
+按[安装指南](getting-started.md)使用 xssi 的 `install.sh` 建立普通 `isarmg-xcos` UID、私有 JSON 和独立状态目录。安装流程调用已校验的独立 `libexec/setup`，从标准输入读取初始密码并初始化当前状态；离线检查使用 `maintenance.sh --root ROOT check`，须先停止整组写入服务。
 生产只由归档内的 systemd units 管理；server 不提供进程管理命令。
 网关软件由现有基础设施管理，同源媒体、HTTPS、RTSPS TLS 和 ICE 要求见[配置参考](configuration.md)。
 

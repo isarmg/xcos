@@ -10,16 +10,16 @@
 
 ## 构建与验证
 
-除现有 Node.js 26.7.0、Python 3.11+ 和 Linux 构建工具外，需要 Rust 1.99.0 的 WASM 标准库及与锁文件一致的 wasm-bindgen CLI：
+生产构建需要 Rust 1.99.0 的 WASM 标准库、Linux 构建工具及与锁文件一致的 wasm-bindgen CLI；浏览器验收另需 Node.js 26.7.0 和锁定开发依赖：
 
 ```sh
 rustup toolchain install 1.99.0 --profile minimal
 rustup target add wasm32-unknown-unknown --toolchain 1.99.0
 cargo +1.99.0 install wasm-bindgen-cli --version 0.2.129 --locked
+cargo +1.99.0 run --locked --manifest-path tools/web-build/Cargo.toml -- check --product-root .
+cargo +1.99.0 run --locked --manifest-path tools/web-build/Cargo.toml -- test --product-root .
+cargo +1.99.0 run --locked --manifest-path tools/web-build/Cargo.toml -- build --product-root .
 npm ci --prefix web
-npm run typecheck --prefix web
-npm run test:unit --prefix web
-npm run build --prefix web
 npm run test:browser --prefix web
 ```
 

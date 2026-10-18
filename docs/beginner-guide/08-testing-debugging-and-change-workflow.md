@@ -2,7 +2,7 @@
 
 ## 8.1 基础门禁
 
-Web 使用仓库 `.node-version` 固定的 Node `26.7.0`，与 xcss 设计包的 engine 合同一致。
+Web 编译使用 Rust 1.99.0、wasm32-unknown-unknown target 和 wasm-bindgen-cli 0.2.129；浏览器与工具验证使用仓库 `.node-version` 固定的 Node `26.7.0`。
 
 ```bash
 cargo +1.99.0 fmt --all -- --check
@@ -14,13 +14,13 @@ npm ci
 npm run check:xcss
 npm run typecheck
 npm run build
-cd ../..
+cd ..
 for script in scripts/*.sh; do
   bash -n "$script"
 done
 ```
 
-随后运行 `tests/deployment.rs` 和 `scripts/check-deployment.sh`。真实 smoke 覆盖 Rust、Vite、SQLite、
+随后运行 `tests/deployment.rs` 和 `scripts/check-deployment.sh`。真实 smoke 覆盖 Rust/WASM 静态资源构建、SQLite、
 MediaMTX 及 hashed assets，是静态检查不能替代的证据。
 
 ## 8.2 分层定位

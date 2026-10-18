@@ -1,6 +1,6 @@
 # xcos 完整功能与取舍清单
 
-本文按当前 `1.0.0` 工作树逐项盘点 xcos 的真实能力、保证、交付工具和明确边界。代码、
+本文按当前工作树逐项盘点 xcos 的真实能力、保证、交付工具和明确边界。代码、
 `schema/product.sql` 与 `build.rs`、`web/src/protocol-contract.json`、`config/mediamtx.lock` 与发行 manifest 是
 实现依据。本文供设计和代码评审使用；日常任务从[文档入口](README.md)进入。
 
@@ -50,7 +50,7 @@ xcss 提供管理员创建、凭据管理与停用能力。摄像头 RTSP/ONVIF 
 | SEN-P-004 | MediaMTX 固定 v1.20.0 linux_amd64 与 SHA-256 | `config/mediamtx.lock`、`doctor::verify_companion` | 保障 | 高 | 媒体行为不可复现 | version/platform/digest 同时匹配 |
 | SEN-P-005 | 控制面与媒体面分离；Rust 不代理 RTSP、不转码 | `src/mediamtx.rs`、`config/mediamtx.yml` | 核心 | 高 | 删 companion 无直播录像 | 真实媒体发布播放 |
 | SEN-P-006 | 普通运行只接受当前合同并验证当前状态身份 | `src/main.rs` CLI、`src/sqlite/` | 保障 | 高 | 加入代际 reader 会长期扩大状态和测试矩阵 | server 只有 ROOT 运行、help/version；维护由 xssi 独立辅助程序执行；普通运行拒绝非当前库，不提供历史转换入口 |
-| SEN-P-007 | Server 端 xcss-web 0.8 + Rust/WASM + Vite 8 控制台位于 `web/` | `web/package.json`、`web/xcss-web/src/lib.rs` | 建议保留 | 高 | API 和媒体能力仍在，但没有内置可操作控制台 | typecheck、Vite build、发行静态树验证 |
+| SEN-P-007 | Server 端 xcss-web CSR + Rust/WASM 控制台位于 `web/`，由仓库内 Rust 工具构建 | `web/package.json`、`web/xcss-web/src/lib.rs` | 建议保留 | 高 | API 和媒体能力仍在，但没有内置可操作控制台 | Rust/WASM check、原生 Web build、发行静态树验证 |
 | SEN-P-008 | Server Rust以完整revision锁定；公共Web资源和CSR源码以SOURCE.json的来源及逐文件摘要受控，产品验收和发行状态单独记录 | Cargo、vendor来源清单、manifest/lock | 保障 | 高 | 平台行为分叉；独立构建通过不代表主分支改动已纳入产品 Release | [本项目 CI](https://github.com/isarmg/xcos/actions)及[正式发行资产](https://github.com/isarmg/xcos/releases)；后续更新仍须复验锁图和发行身份 |
 | SEN-P-009 | `config/` 只存可提交样例和受审 companion 合同；真实 Secret 不进仓库 | `config/xcos.json.example`、`.gitignore` | 开发运维 | 低 | Secret 容易误提交，或部署字段缺少审查入口 | Secret 扫描；样例字段与 parser 对照 |
 | SEN-P-010 | 只由 systemd 管理两个前台进程，同为普通 isarmg-xcos UID；server 不提供进程控制 | 独立 xssi 的服务模板 | 开发运维 | 中 | 重复管理会争抢进程与数据 | unit 静态测试和目标主机启动验收 |
@@ -180,9 +180,9 @@ xcss 提供管理员创建、凭据管理与停用能力。摄像头 RTSP/ONVIF 
 | SEN-W-009 | xcss design tokens、scoped reset、focus/reduced-motion/forced-colors 基线 | CSS imports、`data-xcss-scope` | 保障 | 中 | 基础交互和可访问性在项目间漂移 | CSS 摘要、键盘焦点、减弱动态、高对比度 |
 | SEN-W-010 | 产品 CSS 仅维护业务布局，颜色/字体/控件来自 xcss；视频黑底属于媒体业务 | web/src/styles.css | 建议保留 | 中 | 私有平台样式导致主题和可访问性漂移 | 无 token 覆盖、无私有字体、移动明暗主题 WCAG AA |
 | SEN-W-011 | WHEP player 在 component cleanup、profile/camera 变化时关闭 peer/resource | `Player` cleanup、`Whep::close` | 保障 | 高 | 切页后仍保留媒体连接和资源 | mount/unmount、快速切换、失败重试 |
-| SEN-W-012 | 精确 Node 26.7.0、Rust 1.99.0、xcss-web-core 0.8.19、wasm-bindgen 0.2.129、Vite 8.3.3 工具链 | `.node-version`、`package.json`、lockfile | 开发运维 | 中 | CI/开发/发行 bundle 不可复现 | clean `npm ci`、engine、lock 来源、typecheck |
-| SEN-W-013 | `build` 强制先执行 `check:xcss`，再 Rust/WASM 编译与 Vite build | `package.json`、`web/tests/design-xcss.test.mjs` | 开发运维 | 中 | 共享依赖或 CSS 漂移时仍可能生成表面可用 bundle | 故意改版本/import/scope 后 build 在 bundling 前失败 |
-| SEN-W-014 | 发行内嵌全部 Web；只附带 `share/web-assets.json`，不需要运行时 npm/CDN | Vite output、`scripts/package-release.sh`、release manifest | 保障 | 高 | 运行时网络依赖会破坏离线部署和制品身份 | 断网加载、资源引用、额外文件/篡改拒绝 |
+| SEN-W-012 | 生产 Web 使用 Rust 1.99.0、独立 Cargo.lock 和 wasm-bindgen 0.2.129；浏览器验证使用 Node 26.7.0 与锁定开发依赖 | `.node-version`、`package.json`、lockfile | 开发运维 | 中 | CI/开发/发行 bundle 不可复现 | clean `npm ci`、engine、lock 来源、typecheck |
+| SEN-W-013 | Rust `build` 校验 vendor 来源、文件摘要、许可证和预算；`check:xcss` 作为设计边界专项在 CI 独立执行 | `package.json`、`web/tests/design-xcss.test.mjs` | 开发运维 | 中 | 共享依赖或 CSS 漂移时仍可能生成表面可用 bundle | 来源或资源篡改使 Rust build 拒绝；设计边界变异由 check:xcss 拒绝 |
+| SEN-W-014 | 发行内嵌全部 Web；只附带 `share/web-assets.json`，不需要运行时 npm/CDN | Rust builder output、`scripts/package-release.sh`、release manifest | 保障 | 高 | 运行时网络依赖会破坏离线部署和制品身份 | 断网加载、资源引用、额外文件/篡改拒绝 |
 
 ## 10. SQLite、锁、check、发行与供应链
 
@@ -234,7 +234,7 @@ xcss 提供管理员创建、凭据管理与停用能力。摄像头 RTSP/ONVIF 
 | SEN-X-007 | PTZ 持久化为有期限设备命令，HTTP 202 仅证明已排队；媒体 operation API 不提供设备命令终态查询 | `routes::ptz`、`device_commands`、Client snapshot | 可选 | 高 | 若提供设备副作用终态查询需定义专用查询与不确定结果模型 | 命令到期、Client 去重、回执、重复动作风险 |
 | SEN-X-008 | 提供媒体 operation 到本地业务审计的持久 outbox，不提供外部必达 sink | `_common_operation_audit_outbox`、`flush_operation_audit` | 可选 | 高 | 外部导出仍需独立投递、重试、死信、脱敏和容量模型，不能把本地确认当外部送达 | 本地投递/确认同事务；若新增外部 sink 须有独立合同与故障验收 |
 | SEN-X-009 | 不承诺应用核对每个录像文件的 Hash/inventory；check 检查安全目录和固定媒体合同，不写业务文件 | `doctor::verify_companion` | 建议保留 | 高 | 若新增完整 inventory，check时间、存储和备份合同都会扩大 | 百万文件预算、增量索引、特殊文件与并发写设计 |
-| SEN-X-010 | 包内提供完整 systemd units 和 ctl 薄封装 | `deploy/`、release layout | 开发运维 | 中 | 部署步骤缺失或双重进程管理 | package fixture 与主机验收 |
+| SEN-X-010 | 包内提供完整 systemd units、安装维护与升级入口 | 固定 xssi 修订、产品安装定义、release layout | 开发运维 | 中 | 部署步骤缺失或双重进程管理 | package fixture 与主机验收 |
 | SEN-X-011 | Server 只支持 Linux x86_64 GNU；管理界面为浏览器，边缘客户端平台由独立 Client 仓库定义 | compile/runtime gates、xcoc | 核心 | 高 | 扩平台不能只删除 compile gate，还需 companion、脚本、锁和发行等价证明 | 新平台完整 CI、真实媒体和部署安全验证 |
 
 ## 13. 关键取舍说明
